@@ -89,8 +89,9 @@ smallest device's SM count; choose/tune explicitly for a workload. Both hybrid
 settings are validated in one NVLink domain and across NVLink domains joined by GIN.
 Across domains, role specialization runs the directional hybrid when every domain
 holds one role, and the union hybrid otherwise ([design](design.md), sections 6 and 7).
-A per-domain FFN prefix puts both roles in every domain, so it runs the union hybrid with
-per-rank roles (section 20).
+A per-domain FFN prefix puts both roles in every domain, so it runs the union hybrid's work
+with per-rank roles, silent FFN rails and Attention rails without entry barriers (section 20).
+Like the other hybrid controls, `AFDEP_UNION_HYBRID` must be set before construction.
 The directional hybrid always signals only the channels that carry tokens (the sparse
 directional hybrid, section 17 and [sparse-hybrid.md](sparse-hybrid.md)); there is
 nothing to set. The opt-in mixed-role path (`AFDEP_MIXED_HYBRID`, section 18) changes

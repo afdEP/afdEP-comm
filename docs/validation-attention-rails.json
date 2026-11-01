@@ -1,0 +1,3003 @@
+{
+ "validation": "Attention rails without entry barriers (per-domain FFN prefix): GPU suite, deferred-put fault injection with negative controls, and comm-only screens",
+ "cluster": "kermit, 4-GPU pods (one per node, one NVLink domain of 4 x H200 each), InfiniBand, GIN; GPU suite and screens on afdep-v21-rs1..rs3, fault injection on rs1..rs3 and rt1..rt3",
+ "native_source_sha256": "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8",
+ "commits": [
+  "fbd6262",
+  "2290675"
+ ],
+ "gpu_suite": {
+  "common_args": "tests/gpu/deepep.py --top-k 8 --hybrid on (a later --top-k overrides)",
+  "runs": [
+   {
+    "tag": "pd-2x4-f1-bf16-c8",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "bf16",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-bf16-c64-h2k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "bf16",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c64-h2k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8-topk2",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 2,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c512-h4k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 512,
+    "hidden": 4096,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f2-fp8-c8",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     4,
+     5
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 2,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f2-bf16-c64-h2k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     4,
+     5
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 2,
+    "payload": "bf16",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f2-fp8-c512-h4k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     4,
+     5
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 2,
+    "payload": "fp8",
+    "capacity": 512,
+    "hidden": 4096,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f3-fp8-c8",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     2,
+     4,
+     5,
+     6
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 3,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f3-bf16-c64-h2k",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     2,
+     4,
+     5,
+     6
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 3,
+    "payload": "bf16",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8-ctl-union",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8-ctl",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-3x4-f1-fp8-c8",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     4,
+     8
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-3x4-f1-bf16-c64-h2k",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     4,
+     8
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "bf16",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-3x4-f1-fp8-c512-h4k",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     4,
+     8
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 512,
+    "hidden": 4096,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-3x4-f2-fp8-c8",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     1,
+     4,
+     5,
+     8,
+     9
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 2,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-3x4-f2-fp8-c64-h2k",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     1,
+     4,
+     5,
+     8,
+     9
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 2,
+    "payload": "fp8",
+    "capacity": 64,
+    "hidden": 2048,
+    "top_k": 8,
+    "num_sms": 24,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8-direct",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": false,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "pd-2x4-f1-fp8-c8-fastafd",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     4
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 1,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "gp-2x4-f4-fp8-c8",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 0,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "gp-2x4-f2-fp8-c8-union",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 0,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "gp-2x4-f2-fp8-c8-mixed",
+    "ok": true,
+    "ranks": 8,
+    "ffn_ranks": [
+     0,
+     1
+    ],
+    "physical_domain": [
+     2,
+     4
+    ],
+    "ffn_ranks_per_domain": 0,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "gp-3x4-f2-bf16-c8-mixed",
+    "ok": true,
+    "ranks": 12,
+    "ffn_ranks": [
+     0,
+     1
+    ],
+    "physical_domain": [
+     3,
+     4
+    ],
+    "ffn_ranks_per_domain": 0,
+    "payload": "bf16",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 18,
+    "graph_replays": 36,
+    "checked_graph_exchanges": 936,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   },
+   {
+    "tag": "gp-1x4-f1-fp8-c8",
+    "ok": true,
+    "ranks": 4,
+    "ffn_ranks": [
+     0
+    ],
+    "physical_domain": [
+     1,
+     4
+    ],
+    "ffn_ranks_per_domain": 0,
+    "payload": "fp8",
+    "capacity": 8,
+    "hidden": 256,
+    "top_k": 8,
+    "num_sms": 8,
+    "hybrid": true,
+    "eager_cases": 16,
+    "graph_replays": 32,
+    "checked_graph_exchanges": 832,
+    "bucket_cycle_exchanges": {
+     "eager": 5,
+     "graph": 5
+    }
+   }
+  ],
+  "invalid_routes": [
+   {
+    "kind": "dummy",
+    "layout": "2 x 4, ffn_ranks 2, ffn_ranks_per_domain 1, FP8, capacity 8",
+    "result": "stopped at the route check (device assert), every rank exited non-zero"
+   },
+   {
+    "kind": "duplicate",
+    "layout": "2 x 4, ffn_ranks 2, ffn_ranks_per_domain 1, FP8, capacity 8",
+    "result": "stopped at the route check (device assert), every rank exited non-zero"
+   },
+   {
+    "kind": "negative",
+    "layout": "2 x 4, ffn_ranks 2, ffn_ranks_per_domain 1, FP8, capacity 8",
+    "result": "stopped at the route check (device assert), every rank exited non-zero"
+   },
+   {
+    "kind": "wide",
+    "layout": "2 x 4, ffn_ranks 2, ffn_ranks_per_domain 1, FP8, capacity 8",
+    "result": "stopped at the route check (device assert), every rank exited non-zero"
+   }
+  ]
+ },
+ "fault_injection": {
+  "method": "rail-faults.py (below) patches the generated per-domain copies of scratch trees. On Attention GPUs outside the last domain, the last domain's dispatch puts and finish tails wait until the end of the channel (3 ms globaltimer spin), and its combine replies and signal until after the channel's own wait (600 us on domain 0, 300 us elsewhere); domain 0's Attention GPUs also wait 1 ms after signalling before their combine wait (v4), so domain 1's next dispatch lands while domain 0 still waits, reads its replies and stages them. pos is the shipped protocol; control is pos with the Attention rail barrier halves restored; neg-words puts combine signals back on the dispatch tails' words; neg-reply keeps every rank's reply inbox (and the epilogue's pointer) at DeepEP's offset; neg-staging keeps the combine staging at DeepEP's offset. At FP8 DeepEP's reply inbox and staging do not reach the dispatch inbox (the combine scale-up inbox reserves U regions), so the reply and staging controls need BF16.",
+  "v4_rs": [
+   {
+    "tag": "hctl-3x4-f1-fp8",
+    "result": "ok",
+    "fault_marks": 92,
+    "signals": [],
+    "native_source_sha256_prefix": "3ee22823"
+   },
+   {
+    "tag": "hpos-3x4-f2-fp8",
+    "result": "ok",
+    "fault_marks": 51,
+    "signals": [],
+    "native_source_sha256_prefix": "3e40f528"
+   },
+   {
+    "tag": "hpos-3x4-f1-fp8",
+    "result": "ok",
+    "fault_marks": 92,
+    "signals": [],
+    "native_source_sha256_prefix": "3e40f528"
+   },
+   {
+    "tag": "hpos-3x4-f1-bf16",
+    "result": "ok",
+    "fault_marks": 93,
+    "signals": [],
+    "native_source_sha256_prefix": "3e40f528"
+   },
+   {
+    "tag": "hpos-2x4-f1-fp8",
+    "result": "ok",
+    "fault_marks": 96,
+    "signals": [],
+    "native_source_sha256_prefix": "3e40f528"
+   },
+   {
+    "tag": "hnw-3x4-f1-fp8",
+    "result": "FAIL",
+    "fault_marks": 30,
+    "signals": [
+     "wait all) timeout",
+     "barrier timeout",
+     "Assertion",
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hnw-3x4-f2-fp8",
+    "result": "FAIL",
+    "fault_marks": 12,
+    "signals": [
+     "wait all) timeout",
+     "barrier timeout",
+     "Assertion",
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hnr-3x4-f2-fp8",
+    "result": "ok",
+    "fault_marks": 51,
+    "signals": [],
+    "native_source_sha256_prefix": "c0c18214"
+   },
+   {
+    "tag": "hnr-3x4-f1-fp8",
+    "result": "ok",
+    "fault_marks": 92,
+    "signals": [],
+    "native_source_sha256_prefix": "c0c18214"
+   },
+   {
+    "tag": "hns-3x4-f2-fp8",
+    "result": "ok",
+    "fault_marks": 51,
+    "signals": [],
+    "native_source_sha256_prefix": "0ccb1b8a"
+   },
+   {
+    "tag": "hns-3x4-f1-fp8",
+    "result": "ok",
+    "fault_marks": 92,
+    "signals": [],
+    "native_source_sha256_prefix": "0ccb1b8a"
+   }
+  ],
+  "v4_bf16_rt": [
+   {
+    "tag": "hpos-3x4-f2-bf16",
+    "result": "ok",
+    "fault_marks": 55,
+    "signals": [],
+    "native_source_sha256_prefix": "3e40f528"
+   },
+   {
+    "tag": "hnr-3x4-f1-bf16",
+    "result": "FAIL",
+    "fault_marks": 27,
+    "signals": [
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hnr-3x4-f2-bf16",
+    "result": "FAIL",
+    "fault_marks": 16,
+    "signals": [
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hns-3x4-f1-bf16",
+    "result": "FAIL",
+    "fault_marks": 63,
+    "signals": [
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hns-3x4-f2-bf16",
+    "result": "FAIL",
+    "fault_marks": 34,
+    "signals": [
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   },
+   {
+    "tag": "hnw-3x4-f1-bf16",
+    "result": "FAIL",
+    "fault_marks": 36,
+    "signals": [
+     "wait all) timeout",
+     "barrier timeout",
+     "Assertion",
+     "Traceback"
+    ],
+    "native_source_sha256_prefix": null
+   }
+  ],
+  "negative_root_causes": {
+   "hnw-3x4-f1-fp8": "domain 0's combine waits on lane 1 time out with 4294967298 = (finish flags 2, tail 1) instead of (1, 0): domain 1's combine signal plus its next dispatch's finish tail",
+   "hnw-3x4-f2-fp8": "combine wait timeouts on domain 0, as above",
+   "hnw-3x4-f1-bf16": "combine wait timeouts on domain 0, as above",
+   "hnr-3x4-f1-bf16": "domain 2: FFN rank 8 receive counts mismatch (3 of 4), Attention ranks 9 and 11 hit an illegal address and an illegal instruction (corrupted dispatch rows and metadata)",
+   "hnr-3x4-f2-bf16": "domain 2: Attention ranks 10 and 11 hit illegal addresses",
+   "hns-3x4-f1-bf16": "domain 2's replies mismatch on ranks 9 and 11 (29.2% and 28.4% of elements)",
+   "hns-3x4-f2-bf16": "domain 2's replies mismatch on ranks 10 and 11 (11.7% and 11.2% of elements)",
+   "fp8_reply_and_staging": "pass, as expected: at FP8 DeepEP's reply inbox and staging do not reach the dispatch inbox"
+  },
+  "earlier_rounds": {
+   "v3": "last domain waits late: control and all positives pass; the negatives cannot fail (that domain's incoming tails and payload are all deferred) and do not",
+   "v3_runs": [
+    {
+     "tag": "gctl-3x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 92,
+     "signals": [],
+     "native_source_sha256_prefix": "4b9faa23"
+    },
+    {
+     "tag": "gpos-3x4-f2-fp8",
+     "result": "ok",
+     "fault_marks": 51,
+     "signals": [],
+     "native_source_sha256_prefix": "92621de1"
+    },
+    {
+     "tag": "gpos-3x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 92,
+     "signals": [],
+     "native_source_sha256_prefix": "92621de1"
+    },
+    {
+     "tag": "gpos-3x4-f1-bf16",
+     "result": "ok",
+     "fault_marks": 93,
+     "signals": [],
+     "native_source_sha256_prefix": "92621de1"
+    },
+    {
+     "tag": "gpos-2x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 96,
+     "signals": [],
+     "native_source_sha256_prefix": "92621de1"
+    },
+    {
+     "tag": "gnw-2x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 96,
+     "signals": [],
+     "native_source_sha256_prefix": "5aac7472"
+    },
+    {
+     "tag": "gnw-3x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 92,
+     "signals": [],
+     "native_source_sha256_prefix": "5aac7472"
+    },
+    {
+     "tag": "gnr-3x4-f2-fp8",
+     "result": "ok",
+     "fault_marks": 51,
+     "signals": [],
+     "native_source_sha256_prefix": "cab92251"
+    },
+    {
+     "tag": "gnr-3x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 92,
+     "signals": [],
+     "native_source_sha256_prefix": "cab92251"
+    },
+    {
+     "tag": "gns-3x4-f2-fp8",
+     "result": "ok",
+     "fault_marks": 51,
+     "signals": [],
+     "native_source_sha256_prefix": "507908b7"
+    },
+    {
+     "tag": "gns-3x4-f1-fp8",
+     "result": "ok",
+     "fault_marks": 92,
+     "signals": [],
+     "native_source_sha256_prefix": "507908b7"
+    }
+   ],
+   "v1": "the first patch's dispatch marker called a full-warp elect behind a per-lane condition and hung the warp; the control with barriers hung identically; fixed in v2 (warp-uniform __any_sync)"
+  },
+  "patch_script": "\"\"\"rail-faults.py <tree> <pos|neg-words|neg-reply|neg-staging>: deferred-put fault injection for Attention rails\nwithout entry barriers (per-domain FFN prefix). Scratch only, never shipped.\n\nPatches the generated per-domain copies of a scratch tree. In every mode, on Attention GPUs outside the last\nNVLink domain, the last domain's dispatch puts and finish tails wait until the end of the channel behind a 3 ms\nglobaltimer spin, and its combine replies and signals until after the channel's own wait behind a 300 us spin\n(the section 11 patches, with a runtime fault domain). One destination then lags while the others move on:\n- pos: the protocol as shipped. Must pass.\n- neg-words: combine signals share the dispatch tails' words again. Must fail (hang or mismatch).\n- neg-reply: every rank's reply inbox stays at DeepEP's offset. Must fail where it overlaps the dispatch inbox.\n- neg-staging: every rank's combine staging stays at DeepEP's offset. Must fail with three or more domains.\nv4: domain 0 also waits 1 ms after signalling and defers its replies 600 us instead of 300 us, so with\nthree or more domains domain 1's next dispatch (tails, payload) lands while domain 0 still waits, reads its\nreplies and stages them.\nEvery deferral prints \"AFDEP_FAULT_MARK <tag>\" at 1, 2, 4, 8, ... events per process.\n\"\"\"\nimport sys\nfrom pathlib import Path\n\ntree, mode = Path(sys.argv[1]), sys.argv[2]\nassert mode in (\"pos\", \"neg-words\", \"neg-reply\", \"neg-staging\"), mode\nimpls = tree / \"afdep/third_party/deepep_v2/deep_ep/include/deep_ep/impls\"\n\n\ndef patch(name, old, new):\n    path = impls / name\n    text = path.read_text()\n    assert text.count(old) == 1, (name, text.count(old), old[:90])\n    path.write_text(text.replace(old, new))\n\n\nHELPERS = '''namespace deep_ep::elastic {\n\n// FAULT INJECTION (scratch only, rail-faults.py)\nstatic __device__ unsigned long long afd_fault_events = 0;\n__device__ __forceinline__ void afd_fault_spin(const unsigned long long ns) {\n    unsigned long long t0, t;\n    asm volatile(\"mov.u64 %0, %%globaltimer;\" : \"=l\"(t0));\n    do { asm volatile(\"mov.u64 %0, %%globaltimer;\" : \"=l\"(t)); } while (t - t0 < ns);\n}\n__device__ __forceinline__ void afd_fault_mark(const char* tag, const int rank) {\n    const auto n = atomicAdd(&afd_fault_events, 1ull) + 1;\n    if ((n & (n - 1)) == 0)\n        printf(\"AFDEP_FAULT_MARK %s rank=%d events=%llu\\\\n\", tag, rank, n);\n}\n'''\n\nD = \"afdep_domain_hybrid_dispatch.cuh\"\npatch(D, \"namespace deep_ep::elastic {\\n\", HELPERS)\npatch(D, \"        int stored_scaleout_tail = 0, stored_old_scaleout_tail = 0;\\n\",\n      \"        int stored_scaleout_tail = 0, stored_old_scaleout_tail = 0;\\n\"\n      \"        // FAULT: defer the last domain's puts and tails to the end of the channel.\\n\"\n      \"        const int fault_domain = scaleout_rank_idx == kNumScaleoutRanks - 1 ? -1 : kNumScaleoutRanks - 1;\\n\"\n      \"        int fault_phase = 0;  // 0/1: skip the delayed lane; 2: only the delayed lane\\n\"\n      \"        int deferred_token[32], deferred_slot[32], num_deferred = 0;\\n\")\npatch(D, \"            if (lane_idx < kNumScaleoutRanks and (not kAfdDirectional or lane_idx < kAfdFfnScaleoutRanks) and\\n\",\n      \"            const bool fault_lane = lane_idx == fault_domain;\\n\"\n      \"            if ((fault_phase == 2 ? fault_lane : not fault_lane) and\\n\"\n      \"                lane_idx < kNumScaleoutRanks and (not kAfdDirectional or lane_idx < kAfdFfnScaleoutRanks) and\\n\")\npatch(D, \"            if (stored_dst_slot_idx >= 0 and stored_dst_scaleout_rank_idx != scaleout_rank_idx) {\\n\"\n         \"                gin.put<ncclTeamTagRail>(\\n\",\n      \"            if (stored_dst_slot_idx >= 0 and stored_dst_scaleout_rank_idx == fault_domain) {\\n\"\n      \"                if (num_deferred < 32) { deferred_token[num_deferred] = token_idx; deferred_slot[num_deferred] = stored_dst_slot_idx; }\\n\"\n      \"                ++ num_deferred;\\n\"\n      \"            } else if (stored_dst_slot_idx >= 0 and stored_dst_scaleout_rank_idx != scaleout_rank_idx) {\\n\"\n      \"                gin.put<ncclTeamTagRail>(\\n\")\npatch(D, \"        // Flush unflushed tails\\n        update_scaleout_tail(true);\\n\",\n      \"        // Flush unflushed tails (FAULT: on-time domains first, then the delayed one)\\n\"\n      \"        fault_phase = 1;\\n\"\n      \"        update_scaleout_tail(true);\\n\"\n      \"        if (fault_domain >= 0) {\\n\"\n      \"            afd_fault_spin(3000000);\\n\"\n      \"            EP_DEVICE_ASSERT(num_deferred <= 32);\\n\"\n      \"            for (int k = 0; k < num_deferred; ++ k)\\n\"\n      \"                gin.put<ncclTeamTagRail>(\\n\"\n      \"                        scaleout_recv_buffer.get_token_buffer(deferred_slot[k]).get_base_ptr(),\\n\"\n      \"                        scaleout_send_buffer.get_token_buffer(deferred_token[k]).get_base_ptr(),\\n\"\n      \"                        tma_buffer.get_num_bytes<false>(), fault_domain, ncclGinOptFlagsAggregateRequests);\\n\"\n      \"            // Warp-uniform: num_deferred is per lane, so no lane-divergent elect.\\n\"\n      \"            if (__any_sync(0xffffffffu, num_deferred > 0) and channel_idx == 0 and lane_idx == 0)\\n\"\n      \"                afd_fault_mark(\\\"dispatch\\\", rank_idx);\\n\"\n      \"            __syncwarp();\\n\"\n      \"        }\\n\"\n      \"        fault_phase = 2;\\n\"\n      \"        update_scaleout_tail(true);\\n\")\n\nC = \"afdep_domain_hybrid_combine.cuh\"\npatch(C, \"namespace deep_ep::elastic {\\n\", HELPERS)\npatch(C, \"        void* last_send_token_buffer_ptr = nullptr;\\n\",\n      \"        void* last_send_token_buffer_ptr = nullptr;\\n\"\n      \"        // FAULT: defer replies and signals to the last domain until after this channel's wait.\\n\"\n      \"        const int fault_domain = (afd_holder or scaleout_rank_idx == kNumScaleoutRanks - 1) ? -1 : kNumScaleoutRanks - 1;\\n\"\n      \"        void* deferred_recv[64]; void* deferred_send[64]; int num_deferred = 0;\\n\")\npatch(C, \"                if (last_src_scaleout_rank_idx != scaleout_rank_idx) {\\n\",\n      \"                if (last_src_scaleout_rank_idx == fault_domain) {\\n\"\n      \"                    if (num_deferred < 64) { deferred_recv[num_deferred] = last_recv_token_buffer_ptr; deferred_send[num_deferred] = last_send_token_buffer_ptr; }\\n\"\n      \"                    ++ num_deferred;\\n\"\n      \"                } else if (last_src_scaleout_rank_idx != scaleout_rank_idx) {\\n\")\nsignal_new = (\"afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, scaleout_rank_idx)\" if mode != \"neg-words\"\n              else \"workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx)\")\npatch(C, \"            if (afd_signal) {\\n\",\n      \"            if (afd_signal and lane_idx != fault_domain) {\\n\")\n# v4: domain 0's Attention GPUs wait late, after signalling, so domain 1's next dispatch (not deferred)\n# (tails, payload) can land while they still wait for and read this combine's signals and replies.\npatch(C, \"            // Wait tail arrival\\n\",\n      \"            if (not afd_holder and scaleout_rank_idx == 0)\\n\"\n      \"                afd_fault_spin(1000000);\\n\"\n      \"            // Wait tail arrival\\n\")\npatch(C, \"        __syncwarp();\\n    }\\n\\n    // No barrier at epilogue\\n\",\n      \"        __syncwarp();\\n\"\n      \"        if (fault_domain >= 0) {\\n\"\n      \"            // v3: domain 0 lags its deferred replies longest, so a peer's next dispatch lands first.\\n\"\n      \"            afd_fault_spin(scaleout_rank_idx == 0 ? 600000 : 300000);\\n\"\n      \"            if (ptx::elect_one_sync()) {\\n\"\n      \"                EP_DEVICE_ASSERT(num_deferred <= 64);\\n\"\n      \"                for (int k = 0; k < num_deferred; ++ k)\\n\"\n      \"                    gin.put<ncclTeamTagRail>(deferred_recv[k], deferred_send[k], token_layout.get_num_bytes<false>(),\\n\"\n      \"                                             fault_domain, ncclGinOptFlagsAggregateRequests);\\n\"\n      \"                if (num_deferred > 0 and channel_idx == 0)\\n\"\n      \"                    afd_fault_mark(\\\"combine\\\", scaleout_rank_idx * kNumScaleupRanks + scaleup_rank_idx);\\n\"\n      \"            }\\n\"\n      \"            __syncwarp();\\n\"\n      \"            if (lane_idx == fault_domain)\\n\"\n      \"                gin.red_add_rel<ncclTeamTagRail>(\\n\"\n      f\"                    {signal_new},\\n\"\n      \"                    math::pack2<int, int64_t>(1, 0), lane_idx);\\n\"\n      \"            __syncwarp();\\n\"\n      \"        }\\n\"\n      \"    }\\n\\n    // No barrier at epilogue\\n\")\nif mode == \"neg-words\":\n    text = (impls / C).read_text()\n    old = \"afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, \"\n    assert text.count(old) == 2, text.count(old)\n    text = text.replace(\"afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, scaleout_rank_idx)\",\n                        \"workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx)\")\n    text = text.replace(\"afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, lane_idx)\",\n                        \"workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx)\")\n    (impls / C).write_text(text)\nif mode == \"neg-reply\":\n    patch(C, \"    scaleout_recv_buffer = layout::BufferLayout<false>(\\n\"\n             \"        token_layout, kNumTokensInScaleoutLayout, kNumMaxTokensPerRank,\\n\"\n             \"        math::advance_ptr(afd_scaleout_send_base, -scaleout_recv_buffer.get_num_bytes()));\\n\",\n          \"    // FAULT neg-reply: the reply inbox stays at DeepEP's offset.\\n\")\n    host = tree / \"afdep/third_party/deepep_v2/csrc/kernels/elastic/combine.hpp\"\n    text = host.read_text()\n    a = (\"        AfdepDomainHybridCombineRuntime::launch(domain_runtime, args, stream);\\n\"\n         \"        return afdep_mixed_reply_buffer(afd_scaleout_send_base, token_layout, num_scaleout_ranks,\\n\"\n         \"                                        num_max_tokens_per_rank, num_topk, allow_multiple_reduction);\\n\")\n    b = (\"        AfdepDomainHybridCombineRuntime::launch(domain_runtime, args, stream);\\n\"\n         \"        // FAULT neg-reply: the reduce epilogue reads the reply inbox at DeepEP's offset too.\\n\"\n         \"        return get_hybrid_reduce_buffer(buffer, token_layout, num_scaleout_ranks, num_scaleup_ranks,\\n\"\n         \"                                        num_max_tokens_per_rank, num_topk, allow_multiple_reduction);\\n\")\n    assert text.count(a) == 1, text.count(a)\n    host.write_text(text.replace(a, b))\nif mode == \"neg-staging\":\n    patch(C, \"    scaleout_send_buffer = layout::BufferLayout<false>(\\n\"\n             \"        token_layout, kAllowMultipleReduction ? 1 : kNumTopk, kNumChannels * (kNumScaleoutRanks * kNumMaxTokensPerChannel),\\n\"\n             \"        afd_scaleout_send_base);\\n\"\n             \"    scaleout_recv_buffer = layout::BufferLayout<false>(\\n\",\n          \"    // FAULT neg-staging: the combine staging stays at DeepEP's offset.\\n\"\n          \"    scaleout_recv_buffer = layout::BufferLayout<false>(\\n\")\nprint(\"fault\", mode, \"patched\", tree)\n",
+  "control_patch": "\"\"\"fctl-patch.py <tree>: on a rail-faults tree, give Attention GPUs their rail barrier halves back (control).\"\"\"\nimport sys\nfrom pathlib import Path\n\nimpls = Path(sys.argv[1]) / \"afdep/third_party/deepep_v2/deep_ep/include/deep_ep/impls\"\nfor name in (\"afdep_domain_hybrid_dispatch.cuh\", \"afdep_domain_hybrid_combine.cuh\"):\n    p = impls / name\n    t = p.read_text()\n    old = \"/* afdEP per-domain: no rail half (afdep_roles.hpp) */ false,\"\n    assert t.count(old) == 1, name\n    p.write_text(t.replace(old, \"/* FAULT CONTROL: rail half on Attention GPUs */ not afd_holder,\"))\nprint(\"control patched\", sys.argv[1])\n"
+ },
+ "screens": {
+  "metric": "median over blocks of the max Attention-rank CUDA-event us per exchange (dispatch + combine round trip), CUDA graphs; two fresh processes per arm in rotated order; each arm runs from its own tree",
+  "arms": "pd_hybrid: PR #22 tree (c19786cf); pd_hybrid_rh: this tree; gp_mixed / gp_directional: this tree; pd_direct_dg: the direct GIN protocol tree of PR #24 (9463c9ef), hybrid off",
+  "2x4_f1": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "128",
+    "--ffn-ranks",
+    "2",
+    "--attention-ranks",
+    "6"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 1
+    },
+    "pd_hybrid_rh": {
+     "ffn_ranks_per_domain": 1,
+     "_label": "rh"
+    },
+    "gp_mixed": {
+     "_env": {
+      "AFDEP_MIXED_HYBRID": "1"
+     },
+     "_label": "rh"
+    },
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 1,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 110.06132125854492,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 106.23567819595337,
+      "paired_change_pct": [
+       -3.0529466113925596,
+       -3.897076777392805
+      ],
+      "geomean_change_pct": -3.4759344595176045,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 95.94939947128296,
+      "paired_change_pct": [
+       -12.866413857661641,
+       -12.777521461936402
+      ],
+      "geomean_change_pct": -12.821978989858785,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 76.89136028289795,
+      "paired_change_pct": [
+       -30.146336295604183,
+       -30.129119201161515
+      ],
+      "geomean_change_pct": -30.137728278762722,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 135.17815828323364,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 125.71088075637817,
+      "paired_change_pct": [
+       -7.819724566206332,
+       -6.189743317526886
+      ],
+      "geomean_change_pct": -7.008305212211264,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 117.5218391418457,
+      "paired_change_pct": [
+       -13.110419102380078,
+       -13.012757599964864
+      ],
+      "geomean_change_pct": -13.061602064572607,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 82.57076263427734,
+      "paired_change_pct": [
+       -38.86227561409652,
+       -38.97173153227974
+      ],
+      "geomean_change_pct": -38.91702809024101,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 145.98976135253906,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 138.09552192687988,
+      "paired_change_pct": [
+       -5.1999777117949115,
+       -5.613847970687491
+      ],
+      "geomean_change_pct": -5.407139190757427,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 126.11583948135376,
+      "paired_change_pct": [
+       -13.337330019697957,
+       -13.887853713791143
+      ],
+      "geomean_change_pct": -13.613030410268411,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 91.96923971176147,
+      "paired_change_pct": [
+       -36.90670749258217,
+       -37.098751793905215
+      ],
+      "geomean_change_pct": -37.002802823071335,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 171.84996128082275,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 163.59291553497314,
+      "paired_change_pct": [
+       -4.80390581250143,
+       -4.805694031441721
+      ],
+      "geomean_change_pct": -4.804799926170489,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 155.5260419845581,
+      "paired_change_pct": [
+       -9.473454767199263,
+       -9.524454101984038
+      ],
+      "geomean_change_pct": -9.49895802699794,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 170.48068046569824,
+      "paired_change_pct": [
+       -0.8666218357580524,
+       -0.72685887599101
+      ],
+      "geomean_change_pct": -0.7967649690871159,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 377.575159072876,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 368.20427894592285,
+      "paired_change_pct": [
+       -2.5142138676283787,
+       -2.4494807326829293
+      ],
+      "geomean_change_pct": -2.4818526714362354,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 367.9313087463379,
+      "paired_change_pct": [
+       -2.5337417129116857,
+       -2.5745796948254407
+      ],
+      "geomean_change_pct": -2.5541628431861585,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 503.22203636169434,
+      "paired_change_pct": [
+       33.152499190505914,
+       33.40221625677082
+      ],
+      "geomean_change_pct": 33.27729923787235,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_rh": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "gp_mixed": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_rh",
+      "gp_mixed",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 109.8245620727539,
+       "8": 134.98271942138672,
+       "32": 145.65135955810547,
+       "128": 171.96847915649414,
+       "512": 377.7025604248047
+      },
+      "pd_hybrid_rh": {
+       "1": 106.47167682647705,
+       "8": 124.42744255065918,
+       "32": 138.07752132415771,
+       "128": 163.707275390625,
+       "512": 368.2063102722168
+      },
+      "gp_mixed": {
+       "1": 95.69407939910889,
+       "8": 117.28591918945312,
+       "32": 126.22535705566406,
+       "128": 155.67712306976318,
+       "512": 368.13255310058594
+      },
+      "pd_direct_dg": {
+       "1": 76.71648025512695,
+       "8": 82.52536296844482,
+       "32": 91.89623832702637,
+       "128": 170.47816276550293,
+       "512": 502.9203987121582
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_rh",
+      "gp_mixed",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_rh": {
+       "1": 105.99967956542969,
+       "8": 126.99431896209717,
+       "32": 138.11352252960205,
+       "128": 163.4785556793213,
+       "512": 368.2022476196289
+      },
+      "gp_mixed": {
+       "1": 96.20471954345703,
+       "8": 117.75775909423828,
+       "32": 126.00632190704346,
+       "128": 155.37496089935303,
+       "512": 367.73006439208984
+      },
+      "pd_direct_dg": {
+       "1": 77.06624031066895,
+       "8": 82.61616230010986,
+       "32": 92.04224109649658,
+       "128": 170.48319816589355,
+       "512": 503.52367401123047
+      },
+      "pd_hybrid": {
+       "1": 110.29808044433594,
+       "8": 135.37359714508057,
+       "32": 146.32816314697266,
+       "128": 171.73144340515137,
+       "512": 377.44775772094727
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2"
+   ]
+  },
+  "3x4_f1": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "192",
+    "--ffn-ranks",
+    "3",
+    "--attention-ranks",
+    "9"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 1
+    },
+    "pd_hybrid_rh": {
+     "ffn_ranks_per_domain": 1,
+     "_label": "rh"
+    },
+    "gp_mixed": {
+     "_env": {
+      "AFDEP_MIXED_HYBRID": "1"
+     },
+     "_label": "rh"
+    },
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 1,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 135.85903882980347,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 130.95983982086182,
+      "paired_change_pct": [
+       -3.6709260963787016,
+       -3.5413970694727293
+      ],
+      "geomean_change_pct": -3.6061833397244114,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 114.55748081207275,
+      "paired_change_pct": [
+       -15.51277245641871,
+       -15.845182228975697
+      ],
+      "geomean_change_pct": -15.679141145804564,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 81.58103942871094,
+      "paired_change_pct": [
+       -40.034556390922496,
+       -39.86903251566976
+      ],
+      "geomean_change_pct": -39.9518514869869,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 150.38755893707275,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 141.11763954162598,
+      "paired_change_pct": [
+       -5.995312348965509,
+       -6.33277412102915
+      ],
+      "geomean_change_pct": -6.1641949366258775,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 131.43612146377563,
+      "paired_change_pct": [
+       -12.55708222176436,
+       -12.646394456919952
+      ],
+      "geomean_change_pct": -12.60174974785835,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 86.79200172424316,
+      "paired_change_pct": [
+       -42.34105214942823,
+       -42.23448945347877
+      ],
+      "geomean_change_pct": -42.28779539678352,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 161.91067695617676,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 155.65279960632324,
+      "paired_change_pct": [
+       -3.974996717420165,
+       -3.7548630413923756
+      ],
+      "geomean_change_pct": -3.864992888216612,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 145.35860061645508,
+      "paired_change_pct": [
+       -10.336256825514889,
+       -10.10949650142794
+      ],
+      "geomean_change_pct": -10.222948257802978,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 115.35759925842285,
+      "paired_change_pct": [
+       -28.819950363743985,
+       -28.68458300412976
+      ],
+      "geomean_change_pct": -28.7522988329003,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 209.49635982513428,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 201.3372802734375,
+      "paired_change_pct": [
+       -3.957584002785308,
+       -3.8315205466699087
+      ],
+      "geomean_change_pct": -3.8945729447274036,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 188.59796524047852,
+      "paired_change_pct": [
+       -10.084158767942775,
+       -9.866701408155853
+      ],
+      "geomean_change_pct": -9.97549574751403,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 268.3655595779419,
+      "paired_change_pct": [
+       27.959945479750736,
+       28.24103029112448
+      ],
+      "geomean_change_pct": 28.100410789034356,
+      "repeats_faster": 0
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 482.1129608154297,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 473.0025577545166,
+      "paired_change_pct": [
+       -1.7669029736070097,
+       -2.0125148400636617
+      ],
+      "geomean_change_pct": -1.8897857657610206,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 495.7052803039551,
+      "paired_change_pct": [
+       2.814680273664094,
+       2.823966870005523
+      ],
+      "geomean_change_pct": 2.819323466989654,
+      "repeats_faster": 0
+     },
+     "pd_direct_dg": {
+      "median_us": 879.2123603820801,
+      "paired_change_pct": [
+       82.30387598493638,
+       82.42907971067999
+      ],
+      "geomean_change_pct": 82.36646710297887,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_rh": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "gp_mixed": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_rh",
+      "gp_mixed",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 135.70856094360352,
+       "8": 150.40815830230713,
+       "32": 162.04079627990723,
+       "128": 209.70943450927734,
+       "512": 482.2175979614258
+      },
+      "pd_hybrid_rh": {
+       "1": 130.72679996490479,
+       "8": 141.39071941375732,
+       "32": 155.5996799468994,
+       "128": 201.41000747680664,
+       "512": 473.69728088378906
+      },
+      "gp_mixed": {
+       "1": 114.65640068054199,
+       "8": 131.52128219604492,
+       "32": 145.29184341430664,
+       "128": 188.56200218200684,
+       "512": 495.7904815673828
+      },
+      "pd_direct_dg": {
+       "1": 81.37824058532715,
+       "8": 86.72376155853271,
+       "32": 115.34071922302246,
+       "128": 268.34407806396484,
+       "512": 879.1013717651367
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_rh",
+      "gp_mixed",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_rh": {
+       "1": 131.19287967681885,
+       "8": 140.84455966949463,
+       "32": 155.70591926574707,
+       "128": 201.26455307006836,
+       "512": 472.30783462524414
+      },
+      "gp_mixed": {
+       "1": 114.45856094360352,
+       "8": 131.35096073150635,
+       "32": 145.42535781860352,
+       "128": 188.6339282989502,
+       "512": 495.62007904052734
+      },
+      "pd_direct_dg": {
+       "1": 81.78383827209473,
+       "8": 86.86024188995361,
+       "32": 115.37447929382324,
+       "128": 268.38704109191895,
+       "512": 879.3233489990234
+      },
+      "pd_hybrid": {
+       "1": 136.00951671600342,
+       "8": 150.36695957183838,
+       "32": 161.7805576324463,
+       "128": 209.2832851409912,
+       "512": 482.0083236694336
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2",
+    "afdep-v21-rs3"
+   ]
+  },
+  "2x4_f2": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "128",
+    "--ffn-ranks",
+    "4",
+    "--attention-ranks",
+    "4"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 2
+    },
+    "pd_hybrid_rh": {
+     "ffn_ranks_per_domain": 2,
+     "_label": "rh"
+    },
+    "gp_directional": {
+     "_label": "rh"
+    },
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 2,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 94.32487964630127,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 86.67976140975952,
+      "paired_change_pct": [
+       -9.137759637123965,
+       -7.0739716001946285
+      ],
+      "geomean_change_pct": -8.111659453276875,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 74.70592021942139,
+      "paired_change_pct": [
+       -21.388382280552023,
+       -20.211195163190975
+      ],
+      "geomean_change_pct": -20.801975882457313,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 78.81751894950867,
+      "paired_change_pct": [
+       -16.49854071503698,
+       -16.3822895837745
+      ],
+      "geomean_change_pct": -16.440435366008032,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 106.44988298416138,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 96.43192052841187,
+      "paired_change_pct": [
+       -9.865281306145857,
+       -8.956856839180706
+      ],
+      "geomean_change_pct": -9.412207788219396,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 86.70424222946167,
+      "paired_change_pct": [
+       -18.622256273774486,
+       -18.47625019721919
+      ],
+      "geomean_change_pct": -18.54928595124764,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 77.40140080451965,
+      "paired_change_pct": [
+       -27.35533242827892,
+       -27.22152102333011
+      ],
+      "geomean_change_pct": -27.288457507520334,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 112.40576028823853,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 103.50015878677368,
+      "paired_change_pct": [
+       -8.338551877601208,
+       -7.506402214419983
+      ],
+      "geomean_change_pct": -7.923417118808307,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 94.63631868362427,
+      "paired_change_pct": [
+       -15.908776892637865,
+       -15.707705527509697
+      ],
+      "geomean_change_pct": -15.808301236299727,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 85.00411748886108,
+      "paired_change_pct": [
+       -24.327418285991097,
+       -24.42751477607148
+      ],
+      "geomean_change_pct": -24.37748309241181,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 138.46020221710205,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 130.66936016082764,
+      "paired_change_pct": [
+       -5.779125890791281,
+       -5.474245527485177
+      ],
+      "geomean_change_pct": -5.626808826697016,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 120.99511861801147,
+      "paired_change_pct": [
+       -12.534893713569495,
+       -12.692783722278278
+      ],
+      "geomean_change_pct": -12.613874377546031,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 135.1697587966919,
+      "paired_change_pct": [
+       -2.2673031929847487,
+       -2.4857312806124354
+      ],
+      "geomean_change_pct": -2.37657832717747,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 286.3317584991455,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_rh": {
+      "median_us": 277.08019733428955,
+      "paired_change_pct": [
+       -3.157704931468086,
+       -3.304265435452358
+      ],
+      "geomean_change_pct": -3.2310129299248924,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 270.87324142456055,
+      "paired_change_pct": [
+       -5.213073738708673,
+       -5.584155884608233
+      ],
+      "geomean_change_pct": -5.398796762074875,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 334.0203857421875,
+      "paired_change_pct": [
+       16.77864396972506,
+       16.53167113945715
+      ],
+      "geomean_change_pct": 16.655092195719213,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_rh": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "gp_directional": [
+     "27c46154f7cc4a4076535a3bebc74b135d716f7e034b889fa4c99e5f2863b4c8"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_rh",
+      "gp_directional",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 94.25415992736816,
+       "8": 106.42576217651367,
+       "32": 112.47328281402588,
+       "128": 138.54000091552734,
+       "512": 286.0254383087158
+      },
+      "pd_hybrid_rh": {
+       "1": 85.64144134521484,
+       "8": 95.92656135559082,
+       "32": 103.0946397781372,
+       "128": 130.53359985351562,
+       "512": 276.9935989379883
+      },
+      "gp_directional": {
+       "1": 74.09471988677979,
+       "8": 86.60688400268555,
+       "32": 94.5801591873169,
+       "128": 121.1741590499878,
+       "512": 271.1147212982178
+      },
+      "pd_direct_dg": {
+       "1": 78.70359897613525,
+       "8": 77.31264114379883,
+       "32": 85.11143684387207,
+       "128": 135.3988790512085,
+       "512": 334.01662826538086
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_rh",
+      "gp_directional",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_rh": {
+       "1": 87.7180814743042,
+       "8": 96.93727970123291,
+       "32": 103.90567779541016,
+       "128": 130.80512046813965,
+       "512": 277.1667957305908
+      },
+      "gp_directional": {
+       "1": 75.31712055206299,
+       "8": 86.8016004562378,
+       "32": 94.69247817993164,
+       "128": 120.81607818603516,
+       "512": 270.6317615509033
+      },
+      "pd_direct_dg": {
+       "1": 78.93143892288208,
+       "8": 77.49016046524048,
+       "32": 84.8967981338501,
+       "128": 134.9406385421753,
+       "512": 334.02414321899414
+      },
+      "pd_hybrid": {
+       "1": 94.39559936523438,
+       "8": 106.47400379180908,
+       "32": 112.33823776245117,
+       "128": 138.38040351867676,
+       "512": 286.6380786895752
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2"
+   ]
+  }
+ },
+ "upper_bound": {
+  "tree": "scratch nb (c0faa1c3): PR #22 with the rail halves of both entry barriers dropped on Attention GPUs and combine signals on separate words, nothing moved (data may race; latency only)",
+  "2x4_f1": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "128",
+    "--ffn-ranks",
+    "2",
+    "--attention-ranks",
+    "6"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 1
+    },
+    "pd_hybrid_nb": {
+     "ffn_ranks_per_domain": 1,
+     "_label": "nb"
+    },
+    "gp_mixed": {
+     "_env": {
+      "AFDEP_MIXED_HYBRID": "1"
+     }
+    },
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 1,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 109.9238395690918,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 104.5818018913269,
+      "paired_change_pct": [
+       -4.587001936682444,
+       -5.131076068504048
+      ],
+      "geomean_change_pct": -4.859427921917325,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 96.13627910614014,
+      "paired_change_pct": [
+       -12.35163841194562,
+       -12.733007381104311
+      ],
+      "geomean_change_pct": -12.542530772020156,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 76.59727931022644,
+      "paired_change_pct": [
+       -30.074072546931617,
+       -30.56036204172351
+      ],
+      "geomean_change_pct": -30.31764149917301,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 134.21059846878052,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 126.84812068939209,
+      "paired_change_pct": [
+       -5.321592096590145,
+       -5.646463173231098
+      ],
+      "geomean_change_pct": -5.4841672162053605,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 117.83387899398804,
+      "paired_change_pct": [
+       -11.494367712918162,
+       -12.895161463536542
+      ],
+      "geomean_change_pct": -12.1975580639475,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 82.25419998168945,
+      "paired_change_pct": [
+       -38.309298971298034,
+       -39.1073459352197
+      ],
+      "geomean_change_pct": -38.70962133617923,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 146.16008043289185,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 138.93296003341675,
+      "paired_change_pct": [
+       -5.070219043198209,
+       -4.819248981434232
+      ],
+      "geomean_change_pct": -4.944816840446109,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 126.05803966522217,
+      "paired_change_pct": [
+       -13.573033223717069,
+       -13.933639238625329
+      ],
+      "geomean_change_pct": -13.753524697649766,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 91.86256170272827,
+      "paired_change_pct": [
+       -37.089067948373945,
+       -37.20956036257247
+      ],
+      "geomean_change_pct": -37.149343030307705,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 171.63355827331543,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 164.58264350891113,
+      "paired_change_pct": [
+       -4.206467795180524,
+       -4.009727895481707
+      ],
+      "geomean_change_pct": -4.108148301362135,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 155.81835746765137,
+      "paired_change_pct": [
+       -9.127228288240662,
+       -9.301844316324004
+      ],
+      "geomean_change_pct": -9.214578284174413,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 170.2864408493042,
+      "paired_change_pct": [
+       -0.869411412706611,
+       -0.7003082123107962
+      ],
+      "geomean_change_pct": -0.7848958401471262,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 377.43824005126953,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 369.9595069885254,
+      "paired_change_pct": [
+       -2.0165377129283346,
+       -1.9463684777661805
+      ],
+      "geomean_change_pct": -1.9814593744162168,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 368.3967971801758,
+      "paired_change_pct": [
+       -2.41679334925029,
+       -2.374168086029993
+      ],
+      "geomean_change_pct": -2.395483044521496,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 503.04216384887695,
+      "paired_change_pct": [
+       33.25564905928704,
+       33.30035519786072
+      ],
+      "geomean_change_pct": 33.27800025407208,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_nb": [
+     "c0faa1c36458f80543bcc364d938d513401ae8dc151b8e27de0698c5fa54ef57"
+    ],
+    "gp_mixed": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_nb",
+      "gp_mixed",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 109.63143825531006,
+       "8": 132.77527809143066,
+       "32": 146.0749626159668,
+       "128": 171.67448043823242,
+       "512": 377.3566436767578
+      },
+      "pd_hybrid_nb": {
+       "1": 104.60264205932617,
+       "8": 125.7095193862915,
+       "32": 138.66864204406738,
+       "128": 164.4530487060547,
+       "512": 369.7471046447754
+      },
+      "gp_mixed": {
+       "1": 96.09015941619873,
+       "8": 117.51359939575195,
+       "32": 126.24815940856934,
+       "128": 156.0053586959839,
+       "512": 368.2367134094238
+      },
+      "pd_direct_dg": {
+       "1": 76.66079998016357,
+       "8": 81.90999984741211,
+       "32": 91.89712047576904,
+       "128": 170.18192291259766,
+       "512": 502.8490447998047
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_nb",
+      "gp_mixed",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_nb": {
+       "1": 104.56096172332764,
+       "8": 127.98672199249268,
+       "32": 139.1972780227661,
+       "128": 164.71223831176758,
+       "512": 370.1719093322754
+      },
+      "gp_mixed": {
+       "1": 96.18239879608154,
+       "8": 118.15415859222412,
+       "32": 125.867919921875,
+       "128": 155.63135623931885,
+       "512": 368.55688095092773
+      },
+      "pd_direct_dg": {
+       "1": 76.5337586402893,
+       "8": 82.5984001159668,
+       "32": 91.8280029296875,
+       "128": 170.39095878601074,
+       "512": 503.2352828979492
+      },
+      "pd_hybrid": {
+       "1": 110.21624088287354,
+       "8": 135.64591884613037,
+       "32": 146.2451982498169,
+       "128": 171.59263610839844,
+       "512": 377.51983642578125
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2"
+   ]
+  },
+  "3x4_f1": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "192",
+    "--ffn-ranks",
+    "3",
+    "--attention-ranks",
+    "9"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 1
+    },
+    "pd_hybrid_nb": {
+     "ffn_ranks_per_domain": 1,
+     "_label": "nb"
+    },
+    "gp_mixed": {
+     "_env": {
+      "AFDEP_MIXED_HYBRID": "1"
+     }
+    },
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 1,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 135.95443964004517,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 129.96079921722412,
+      "paired_change_pct": [
+       -4.41180720738259,
+       -4.4053080114033865
+      ],
+      "geomean_change_pct": -4.408557664627466,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 115.05676031112671,
+      "paired_change_pct": [
+       -15.64878276670656,
+       -15.092057942028092
+      ],
+      "geomean_change_pct": -15.370878148453649,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 81.91731929779053,
+      "paired_change_pct": [
+       -40.14489907840735,
+       -39.34616312648412
+      ],
+      "geomean_change_pct": -39.74685462694823,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 149.75120067596436,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 142.72183895111084,
+      "paired_change_pct": [
+       -4.372793240433492,
+       -5.011787991788774
+      ],
+      "geomean_change_pct": -4.692826138685902,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 130.86944103240967,
+      "paired_change_pct": [
+       -12.395923741714633,
+       -12.819282325182368
+      ],
+      "geomean_change_pct": -12.607859395499577,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 86.80220127105713,
+      "paired_change_pct": [
+       -42.24680720111772,
+       -41.82692004697145
+      ],
+      "geomean_change_pct": -42.03724383509656,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 161.98843955993652,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 154.15791988372803,
+      "paired_change_pct": [
+       -4.763139997724386,
+       -4.904518441627637
+      ],
+      "geomean_change_pct": -4.833855473578785,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 145.15436172485352,
+      "paired_change_pct": [
+       -10.216236692754354,
+       -10.567215265302965
+      ],
+      "geomean_change_pct": -10.391897818735774,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 115.63276052474976,
+      "paired_change_pct": [
+       -28.44048570590899,
+       -28.79198725941522
+      ],
+      "geomean_change_pct": -28.616452837059914,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 209.34179782867432,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 200.68679809570312,
+      "paired_change_pct": [
+       -4.178597886938496,
+       -4.0902035697458095
+      ],
+      "geomean_change_pct": -4.134410916506348,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 188.7809181213379,
+      "paired_change_pct": [
+       -10.065215928105587,
+       -9.578295414996774
+      ],
+      "geomean_change_pct": -9.822084315144597,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 268.4464359283447,
+      "paired_change_pct": [
+       28.22098744272912,
+       28.246120840452615
+      ],
+      "geomean_change_pct": 28.2335535258319,
+      "repeats_faster": 0
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 481.5796375274658,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 473.5178756713867,
+      "paired_change_pct": [
+       -1.7863951812606693,
+       -1.5614519099284463
+      ],
+      "geomean_change_pct": -1.6739878717297207,
+      "repeats_faster": 2
+     },
+     "gp_mixed": {
+      "median_us": 495.43808937072754,
+      "paired_change_pct": [
+       2.68328470116741,
+       3.072479544373863
+      ],
+      "geomean_change_pct": 2.8776980783988826,
+      "repeats_faster": 0
+     },
+     "pd_direct_dg": {
+      "median_us": 879.6728897094727,
+      "paired_change_pct": [
+       82.48062825319116,
+       82.84781006221966
+      ],
+      "geomean_change_pct": 82.66412689653654,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_nb": [
+     "c0faa1c36458f80543bcc364d938d513401ae8dc151b8e27de0698c5fa54ef57"
+    ],
+    "gp_mixed": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_nb",
+      "gp_mixed",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 136.28151893615723,
+       "8": 148.93736362457275,
+       "32": 161.5991973876953,
+       "128": 209.27599906921387,
+       "512": 482.01255798339844
+      },
+      "pd_hybrid_nb": {
+       "1": 130.26904106140137,
+       "8": 142.42464065551758,
+       "32": 153.9020013809204,
+       "128": 200.53119659423828,
+       "512": 473.4019088745117
+      },
+      "gp_mixed": {
+       "1": 114.95512008666992,
+       "8": 130.4752016067505,
+       "32": 145.08984088897705,
+       "128": 188.21191787719727,
+       "512": 494.94632720947266
+      },
+      "pd_direct_dg": {
+       "1": 81.57144069671631,
+       "8": 86.01608276367188,
+       "32": 115.63960075378418,
+       "128": 268.3357524871826,
+       "512": 879.5795440673828
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_nb",
+      "gp_mixed",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_nb": {
+       "1": 129.65255737304688,
+       "8": 143.0190372467041,
+       "32": 154.41383838653564,
+       "128": 200.84239959716797,
+       "512": 473.6338424682617
+      },
+      "gp_mixed": {
+       "1": 115.1584005355835,
+       "8": 131.26368045806885,
+       "32": 145.21888256072998,
+       "128": 189.34991836547852,
+       "512": 495.9298515319824
+      },
+      "pd_direct_dg": {
+       "1": 82.26319789886475,
+       "8": 87.58831977844238,
+       "32": 115.62592029571533,
+       "128": 268.55711936950684,
+       "512": 879.7662353515625
+      },
+      "pd_hybrid": {
+       "1": 135.6273603439331,
+       "8": 150.56503772735596,
+       "32": 162.37768173217773,
+       "128": 209.40759658813477,
+       "512": 481.1467170715332
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2",
+    "afdep-v21-rs3"
+   ]
+  },
+  "2x4_f2": {
+   "passthrough": [
+    "--payload",
+    "fp8",
+    "--hidden",
+    "4096",
+    "--top-k",
+    "8",
+    "--capacity",
+    "512",
+    "--tokens",
+    "1",
+    "8",
+    "32",
+    "128",
+    "512",
+    "--experts",
+    "128",
+    "--ffn-ranks",
+    "4",
+    "--attention-ranks",
+    "4"
+   ],
+   "arms": {
+    "pd_hybrid": {
+     "ffn_ranks_per_domain": 2
+    },
+    "pd_hybrid_nb": {
+     "ffn_ranks_per_domain": 2,
+     "_label": "nb"
+    },
+    "gp_directional": {},
+    "pd_direct_dg": {
+     "ffn_ranks_per_domain": 2,
+     "allow_hybrid_mode": false,
+     "_label": "dg"
+    }
+   },
+   "table": [
+    {
+     "tokens": 1,
+     "pd_hybrid": {
+      "median_us": 94.35155868530273,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 85.89395999908447,
+      "paired_change_pct": [
+       -9.413739070819382,
+       -8.51921127945079
+      ],
+      "geomean_change_pct": -8.967573925293449,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 75.01823902130127,
+      "paired_change_pct": [
+       -20.829771937857277,
+       -20.155531845867557
+      ],
+      "geomean_change_pct": -20.49336660841966,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 78.09391975402832,
+      "paired_change_pct": [
+       -17.353736435861133,
+       -17.109492996373465
+      ],
+      "geomean_change_pct": -17.231704809227722,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 8,
+     "pd_hybrid": {
+      "median_us": 105.87167978286743,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 97.53324031829834,
+      "paired_change_pct": [
+       -7.974714732099497,
+       -7.777742333901383
+      ],
+      "geomean_change_pct": -7.876281177035905,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 86.79596185684204,
+      "paired_change_pct": [
+       -17.982918036800054,
+       -18.05245533959252
+      ],
+      "geomean_change_pct": -18.01769406087904,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 77.49019980430603,
+      "paired_change_pct": [
+       -26.88276317679239,
+       -26.732472466472966
+      ],
+      "geomean_change_pct": -26.807656396862246,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 32,
+     "pd_hybrid": {
+      "median_us": 112.32948303222656,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 104.31979894638062,
+      "paired_change_pct": [
+       -7.278291464034048,
+       -6.983434149926415
+      ],
+      "geomean_change_pct": -7.1309798276787735,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 94.51248168945312,
+      "paired_change_pct": [
+       -15.955874387932578,
+       -15.76730658965353
+      ],
+      "geomean_change_pct": -15.86164331518043,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 84.45175886154175,
+      "paired_change_pct": [
+       -24.97259348784,
+       -24.663741628746973
+      ],
+      "geomean_change_pct": -24.818326156402204,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 128,
+     "pd_hybrid": {
+      "median_us": 138.39579820632935,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 131.39480113983154,
+      "paired_change_pct": [
+       -5.248466883327452,
+       -4.868426617459043
+      ],
+      "geomean_change_pct": -5.0586369078419295,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 120.61064004898071,
+      "paired_change_pct": [
+       -13.128677804970401,
+       -12.572522819596287
+      ],
+      "geomean_change_pct": -12.851043960140007,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 134.95715856552124,
+      "paired_change_pct": [
+       -2.5580111430756447,
+       -2.4110937655126397
+      ],
+      "geomean_change_pct": -2.4845801226270003,
+      "repeats_faster": 2
+     }
+    },
+    {
+     "tokens": 512,
+     "pd_hybrid": {
+      "median_us": 286.04275703430176,
+      "paired_change_pct": [
+       0.0,
+       0.0
+      ],
+      "geomean_change_pct": 0.0,
+      "repeats_faster": 0
+     },
+     "pd_hybrid_nb": {
+      "median_us": 277.9980421066284,
+      "paired_change_pct": [
+       -2.9460479497141256,
+       -2.6786338282277167
+      ],
+      "geomean_change_pct": -2.812432863542158,
+      "repeats_faster": 2
+     },
+     "gp_directional": {
+      "median_us": 271.1915969848633,
+      "paired_change_pct": [
+       -5.223800153378044,
+       -5.160037801360318
+      ],
+      "geomean_change_pct": -5.191924337721387,
+      "repeats_faster": 2
+     },
+     "pd_direct_dg": {
+      "median_us": 334.0803623199463,
+      "paired_change_pct": [
+       16.80250602990956,
+       16.78519372663414
+      ],
+      "geomean_change_pct": 16.79384955749741,
+      "repeats_faster": 0
+     }
+    }
+   ],
+   "native_source_sha256": {
+    "pd_hybrid": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_hybrid_nb": [
+     "c0faa1c36458f80543bcc364d938d513401ae8dc151b8e27de0698c5fa54ef57"
+    ],
+    "gp_directional": [
+     "c19786cfc219a8328db4d73bc04362ed59a4f6f22f28e2fc54f20c06d8fc8ac6"
+    ],
+    "pd_direct_dg": [
+     "9463c9efa4c977d6c0c68ec589fc178da2c9f83e3ec78e80c7229e1ba5127a31"
+    ]
+   },
+   "processes": [
+    {
+     "order": [
+      "pd_hybrid",
+      "pd_hybrid_nb",
+      "gp_directional",
+      "pd_direct_dg"
+     ],
+     "median_us": {
+      "pd_hybrid": {
+       "1": 93.81263732910156,
+       "8": 105.6117582321167,
+       "32": 112.0736026763916,
+       "128": 138.56383800506592,
+       "512": 286.20543479919434
+      },
+      "pd_hybrid_nb": {
+       "1": 84.98136043548584,
+       "8": 97.18952178955078,
+       "32": 103.91655921936035,
+       "128": 131.29136085510254,
+       "512": 277.77368545532227
+      },
+      "gp_directional": {
+       "1": 74.27167892456055,
+       "8": 86.61968231201172,
+       "32": 94.19127941131592,
+       "128": 120.37223815917969,
+       "512": 271.25463485717773
+      },
+      "pd_direct_dg": {
+       "1": 77.532639503479,
+       "8": 77.22039937973022,
+       "32": 84.08591747283936,
+       "128": 135.01935958862305,
+       "512": 334.2951202392578
+      }
+     }
+    },
+    {
+     "order": [
+      "pd_hybrid_nb",
+      "gp_directional",
+      "pd_direct_dg",
+      "pd_hybrid"
+     ],
+     "median_us": {
+      "pd_hybrid_nb": {
+       "1": 86.8065595626831,
+       "8": 97.8769588470459,
+       "32": 104.72303867340088,
+       "128": 131.49824142456055,
+       "512": 278.22239875793457
+      },
+      "gp_directional": {
+       "1": 75.76479911804199,
+       "8": 86.97224140167236,
+       "32": 94.83368396759033,
+       "128": 120.84904193878174,
+       "512": 271.1285591125488
+      },
+      "pd_direct_dg": {
+       "1": 78.65520000457764,
+       "8": 77.76000022888184,
+       "32": 84.81760025024414,
+       "128": 134.89495754241943,
+       "512": 333.86560440063477
+      },
+      "pd_hybrid": {
+       "1": 94.8904800415039,
+       "8": 106.13160133361816,
+       "32": 112.58536338806152,
+       "128": 138.22775840759277,
+       "512": 285.8800792694092
+      }
+     }
+    }
+   ],
+   "pods": [
+    "afdep-v21-rs1",
+    "afdep-v21-rs2"
+   ]
+  }
+ },
+ "unit": "54 unit tests, Ruff clean"
+}

@@ -1212,11 +1212,11 @@ Every rail now holds one role. Rails u < f join only FFN GPUs: no source sits on
 all they carry across domains is protocol words (zero counts, finish tails, combine
 signals and their rail barrier, which spans rail peers only). Rails u ≥ f join only
 Attention GPUs, and each is both a source and its rail's forwarder for the other domains,
-so domain ingress uses U − f NICs. Two steps remain. First, FFN rails can skip all of that
-on their own. Second, a directional protocol on Attention rails needs its own
-ordering argument: dispatch tails and combine signals share words that a dual-role GPU
-would receive in both phases, and sources now stage dispatch in domains that hold FFN
-ranks. Both need deferred-put fault injection, as section 18 does.
+so domain ingress uses U − f NICs. Two steps remained. First, FFN rails can skip all of that
+on their own. Second, Attention rails need their own ordering argument without the entry
+barriers: dispatch tails and combine signals share words that a dual-role GPU would receive
+in both phases, and sources now stage dispatch in domains that hold FFN ranks. Both are done
+below, with deferred-put fault injection for the second.
 
 Since then: FFN GPUs skip all of that (silent FFN rails, `afdep_domain_hybrid_*`; per call when
 the combine scale-up regions they write fit below a forwarder's unflushed dispatch staging, 2L ≤ U;
@@ -1249,6 +1249,73 @@ FFN-first layout there. From 128 tokens hybrid wins: in direct mode every remote
 FFN GPU enters through that GPU's NIC, while hybrid spreads the same bytes over the node's Attention
 NICs and NVLink. With two FFN GPUs per node hybrid wins at every size. The direct path still runs
 DeepEP's union protocol (FastAFD M2N is within 1.3%); sections 1–3 over RDMA are next.
+
+Since then: Attention rails without entry barriers. Every rail u ≥ f joins one Attention GPU per
+domain, and each is both a source and its rail's forwarder for every other domain, so an Attention
+rail carries both phases both ways and neither directional protocol applies. These GPUs now also
+run the per-domain copies, with the union kernels' work but no rail half of the dispatch-entry or
+combine-entry barrier (the dispatch exit had none): every cross-domain write of exchange N+1 follows
+its reader's exchange-N reads through the round trip (the argument is beside
+`afdep_domain_attention_rails` in `afdep_roles.hpp`; it assumes one dispatch and its combine per
+exchange, which `afdep/deepep.py` enforces). Three things change for it:
+- Combine signals take their own words (`afdep_domain_hybrid.cuh`). DeepEP keeps a peer's dispatch
+  finish tail and its combine signal in one (channel, peer) word, and a GPU that both forwards and
+  collects receives both from the same peer, so the peer's next dispatch tail could land while this
+  GPU still waits there for the combine signal.
+- Every rank's reply inbox and combine staging move into the slices at the window end, as in
+  section 18: a peer's next dispatch may land while this NIC still reads combine staging for a third
+  domain, or on a reply this GPU has not yet reduced (section 11). At FP8 DeepEP's offsets stay
+  below the dispatch inbox (the combine scale-up inbox reserves U regions); at BF16 both overlap it.
+- FFN GPUs keep silent FFN rails (2L ≤ U) or union per call; the rails are disjoint, so the two
+  choices are independent (2 × 4 with f = 3 runs union FFN GPUs next to these rails).
+Bit 1 of the agreement tuple's seventh element reports it; `AFDEP_UNION_HYBRID=1` keeps the union.
+
+Comm-only screen ([record](validation-attention-rails.json)), same shapes as above (FP8, hidden 4096,
+top-8, capacity 512, 4-GPU domains), two fresh processes per arm, every arm from its own tree; the
+direct path is the direct GIN protocol of #24 (its own branch), µs:
+
+| 2 × 4, f = 1 | T=1 | 8 | 32 | 128 | 512 |
+|---|---:|---:|---:|---:|---:|
+| Per-node FFN, hybrid, before | 110.1 | 135.2 | 146.0 | 171.9 | 377.6 |
+| Per-node FFN, hybrid, no entry barriers | 106.2 | 125.7 | 138.1 | 163.6 | 368.2 |
+| FFN on node 0, mixed-role (opt-in) | 96.0 | 117.5 | 126.1 | 155.5 | 367.9 |
+| Per-node FFN, direct (#24) | 76.9 | 82.6 | 92.0 | 170.5 | 503.2 |
+
+| 3 × 4, f = 1 | T=1 | 8 | 32 | 128 | 512 |
+|---|---:|---:|---:|---:|---:|
+| Per-node FFN, hybrid, before | 135.9 | 150.4 | 161.9 | 209.5 | 482.1 |
+| Per-node FFN, hybrid, no entry barriers | 131.0 | 141.1 | 155.7 | 201.3 | 473.0 |
+| FFN on node 0, mixed-role (opt-in) | 114.6 | 131.4 | 145.4 | 188.6 | 495.7 |
+| Per-node FFN, direct (#24) | 81.6 | 86.8 | 115.4 | 268.4 | 879.2 |
+
+| 2 × 4, f = 2 | T=1 | 8 | 32 | 128 | 512 |
+|---|---:|---:|---:|---:|---:|
+| Per-node FFN, hybrid, before | 94.3 | 106.5 | 112.4 | 138.5 | 286.3 |
+| Per-node FFN, hybrid, no entry barriers | 86.7 | 96.4 | 103.5 | 130.7 | 277.1 |
+| FFN node + Attention node, directional | 74.7 | 86.7 | 94.6 | 121.0 | 270.9 |
+| Per-node FFN, direct (#24) | 78.8 | 77.4 | 85.0 | 135.2 | 334.0 |
+
+Every cell is faster than before in both repeats (−1.9% to −9.4%, 3.8 to 10.0 µs). A scratch tree with only
+the rail halves dropped and the separate words, nothing moved, measured the same within 1.6%, so
+the slices and words cost nothing measurable. The ranking of layouts barely moves: per-node FFN now
+ties the mixed-role layout at 512 tokens on two nodes and beats it by 4.6% on three, and the
+FFN-first layouts still win at 128 tokens and below. What remains of the gap is not protocol: every
+Attention GPU of a per-node layout forwards and reduces for its rail, which a pure source skips.
+
+Correctness on `27c46154`: the GPU suite passes on 2 × 4 with f = 1, 2 and 3 and on 3 × 4 with f = 1
+and 2 (BF16 and FP8, capacities 8, 64 and 512, hidden 256 to 4096, top-k 2 and 8), with
+`AFDEP_UNION_HYBRID=1`, with the opt-in controls set, with hybrid off and for FastAFD's DeepEP M2N;
+the global-prefix layouts (directional, union, mixed-role on two and three nodes, one domain) pass
+unchanged; invalid routes stop at the route check. Deferred-put fault injection (scratch trees,
+patch in the record): on Attention GPUs outside the last domain the last domain's dispatch puts and
+tails wait until the end of the channel (3 ms) and its replies and signal until after the channel's
+own wait (600 µs on domain 0, 300 µs elsewhere), and domain 0 waits 1 ms after signalling, so
+domain 1's next dispatch lands while domain 0 still waits, reduces and stages. The shipped protocol
+passes on 2 × 4 and 3 × 4 (f = 1 and 2, BF16 and FP8), as does a control that keeps the barriers.
+Each negative control fails on 3 × 4: combine signals back on the tail words hang with exactly a
+signal plus a dispatch tail in the awaited word (f = 1 and 2, BF16 and FP8); the reply inbox at
+DeepEP's offset corrupts the next dispatch's rows (wrong counts, illegal addresses; BF16, f = 1 and 2);
+combine staging at DeepEP's offset corrupts 11–29% of the lagging domain's replies (BF16, f = 1 and 2).
 
 ## 3:1 Attention:FFN: where the time goes (analysis)
 
