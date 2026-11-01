@@ -371,9 +371,9 @@ validated more narrowly: the mixed-role path passed the suite on 6 × 4 H200 wit
 FFN ranks on every node (`ffn_ranks_per_domain`, [design](docs/design.md) section 20) passed
 the suite on 2 × 4 and 3 × 4 H200 with one and two FFN GPUs per node, BF16 and FP8, and on
 FastAFD's DeepEP M2N in the same layouts ([record](docs/validation-per-domain.json)). These
-layouts run the union hybrid's work with silent FFN rails and Attention rails without entry
-barriers ([record](docs/validation-attention-rails.json), including deferred-put fault injection),
-or with hybrid off one RDMA hop per token
+layouts run the union hybrid's work with silent FFN rails and Attention rails without the
+dispatch-entry barrier ([record](docs/validation-attention-rails.json)), or with hybrid off one
+RDMA hop per token
 ([direct record](docs/validation-direct-per-domain.json)); nodes with different GPU counts are not
 supported.
 

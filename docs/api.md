@@ -90,7 +90,8 @@ settings are validated in one NVLink domain and across NVLink domains joined by 
 Across domains, role specialization runs the directional hybrid when every domain
 holds one role, and the union hybrid otherwise ([design](design.md), sections 6 and 7).
 A per-domain FFN prefix puts both roles in every domain, so it runs the union hybrid's work
-with per-rank roles, silent FFN rails and Attention rails without entry barriers (section 20).
+with per-rank roles, silent FFN rails and Attention rails without the dispatch-entry barrier
+(section 20).
 Like the other hybrid controls, `AFDEP_UNION_HYBRID` must be set before construction.
 The directional hybrid always signals only the channels that carry tokens (the sparse
 directional hybrid, section 17 and [sparse-hybrid.md](sparse-hybrid.md)); there is
