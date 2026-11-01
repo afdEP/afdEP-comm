@@ -1280,6 +1280,7 @@ direct path is the direct GIN protocol of #24 (its own branch), µs:
 | Per-node FFN, hybrid, no entry barriers | 106.2 | 125.7 | 138.1 | 163.6 | 368.2 |
 | FFN on node 0, mixed-role (opt-in) | 96.0 | 117.5 | 126.1 | 155.5 | 367.9 |
 | Per-node FFN, direct (#24) | 76.9 | 82.6 | 92.0 | 170.5 | 503.2 |
+| FastAFD's DeepEP M2N, per-node FFN | 119.4 | 144.6 | 154.7 | 179.4 | 387.2 |
 
 | 3 × 4, f = 1 | T=1 | 8 | 32 | 128 | 512 |
 |---|---:|---:|---:|---:|---:|
@@ -1287,6 +1288,7 @@ direct path is the direct GIN protocol of #24 (its own branch), µs:
 | Per-node FFN, hybrid, no entry barriers | 131.0 | 141.1 | 155.7 | 201.3 | 473.0 |
 | FFN on node 0, mixed-role (opt-in) | 114.6 | 131.4 | 145.4 | 188.6 | 495.7 |
 | Per-node FFN, direct (#24) | 81.6 | 86.8 | 115.4 | 268.4 | 879.2 |
+| FastAFD's DeepEP M2N, per-node FFN | 144.1 | 160.8 | 172.7 | 219.2 | 491.5 |
 
 | 2 × 4, f = 2 | T=1 | 8 | 32 | 128 | 512 |
 |---|---:|---:|---:|---:|---:|
@@ -1294,8 +1296,11 @@ direct path is the direct GIN protocol of #24 (its own branch), µs:
 | Per-node FFN, hybrid, no entry barriers | 86.7 | 96.4 | 103.5 | 130.7 | 277.1 |
 | FFN node + Attention node, directional | 74.7 | 86.7 | 94.6 | 121.0 | 270.9 |
 | Per-node FFN, direct (#24) | 78.8 | 77.4 | 85.0 | 135.2 | 334.0 |
+| FastAFD's DeepEP M2N, per-node FFN | 100.8 | 115.0 | 121.3 | 146.1 | 292.3 |
 
-Every cell is faster than before in both repeats (−1.9% to −9.4%, 3.8 to 10.0 µs). A scratch tree with only
+Every cell is faster than before in both repeats (−1.9% to −9.4%, 3.8 to 10.0 µs), and 3.7–16.3% faster
+than FastAFD's DeepEP M2N in the same layout (a second session on the same nodes, where both trees
+re-measured within 1% of the first; FastAFD slower in every repeat). A scratch tree with only
 the rail halves dropped and the separate words, nothing moved, measured the same within 1.6%, so
 the slices and words cost nothing measurable. The ranking of layouts barely moves: per-node FFN now
 ties the mixed-role layout at 512 tokens on two nodes and beats it by 4.6% on three, and the
