@@ -53,7 +53,7 @@ static bool afdep_directed_exit() {
 // signals) and the rail halves of its barriers order nothing; DeepEP's rail barrier spans rail
 // peers only (ncclTeamTagRail). FFN GPUs then run afdep_domain_hybrid_{dispatch,combine}.cuh, which
 // skip every scale-out action and keep their NVLink work (scale-up counts, list ends, partials) and
-// all three scale-up barriers; Attention rails keep the union protocol unchanged. One protection
+// all three scale-up barriers; Attention rails are below (without entry barriers). One protection
 // goes: the FFN GPUs' combine-entry rail barrier held their partials until every domain's dispatch
 // had completed, so an Attention forwarder's NIC had finished reading its dispatch staging, which
 // dispatch kernels end without flushing. Holders now write the forwarder's combine scale-up inbox
@@ -108,8 +108,12 @@ static bool afdep_domain_silent_rails(const int afd_ffn_ranks, const int num_sca
 //   forwarders saw every peer's tails (each after that peer's combine-N wait saw X's signals, which
 //   follow X's puts to it on the same QP).
 // - Inside a domain all three scale-up barriers stay, and a GPU's own lane follows its program order.
-// FFN rails are disjoint from Attention rails, so the per-call silent-rails gate does not change this
-// choice. Returns f, or 0 (union). AFDEP_UNION_HYBRID=1 keeps the union protocol as a control.
+// The argument assumes each dispatch is followed by its combine before the next dispatch on the
+// buffer (afdep/deepep.py allows one in-flight exchange): two dispatches in a row could land in an
+// inbox or tail word a peer's forwarders still read. FFN rails are disjoint from Attention rails, so
+// the per-call silent-rails gate does not change this choice. Returns f, or 0 (union).
+// AFDEP_UNION_HYBRID=1 keeps the union protocol as a control; like the other hybrid controls it is
+// read on every call but checked across ranks only at construction, so set it before constructing.
 static int afdep_domain_attention_rails(const int afd_ffn_ranks, const int num_scaleout_ranks,
                                         const int num_scaleup_ranks, const int afd_ffn_ranks_per_domain) {
     const bool on = afd_ffn_ranks_per_domain > 0 and num_scaleout_ranks > 1 and

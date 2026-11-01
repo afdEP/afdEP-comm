@@ -106,6 +106,8 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
     EP_STATIC_ASSERT(not kAfdDirectional and 0 < kAfdFfnRanksPerDomain and kAfdFfnRanksPerDomain < kNumScaleupRanks,
                      "per-domain: the union template with an FFN prefix in every domain");
     const bool afd_holder = scaleup_rank_idx < kAfdFfnRanksPerDomain;
+    EP_STATIC_ASSERT(static_cast<int64_t>(kNumChannels) * kNumScaleoutRanks <= kAfdDomainCombineWords,
+                     "per-domain: hybrid tails would reach the combine signal words");
     // afdEP directional: an FFN domain's staging would otherwise overlap its dispatch scale-out inbox,
     // which an Attention domain writes for exchange N+1 as soon as its own combine-N signals arrive,
     // possibly while this NIC is still reading staging for another Attention domain. With one

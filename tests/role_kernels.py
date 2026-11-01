@@ -1081,7 +1081,11 @@ DOMAIN_HYBRID_COMBINE_EDITS = (
     (
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n",
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n"
-        + DOMAIN_HOLDER,
+        + DOMAIN_HOLDER
+        + "    EP_STATIC_ASSERT(static_cast<int64_t>(kNumChannels) * kNumScaleoutRanks"
+        " <= kAfdDomainCombineWords,\n"
+        '                     "per-domain: hybrid tails would reach the combine signal'
+        ' words");\n',
     ),
     (
         "    comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,\n"
