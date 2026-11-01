@@ -5,6 +5,7 @@
 #include <deep_ep/common/math.cuh>
 #include <deep_ep/common/ptx.cuh>
 #include <deep_ep/impls/combine_utils.cuh>
+#include <deep_ep/impls/afdep_domain_hybrid.cuh>
 
 namespace deep_ep::elastic {
 
@@ -105,7 +106,6 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
     EP_STATIC_ASSERT(not kAfdDirectional and 0 < kAfdFfnRanksPerDomain and kAfdFfnRanksPerDomain < kNumScaleupRanks,
                      "per-domain: the union template with an FFN prefix in every domain");
     const bool afd_holder = scaleup_rank_idx < kAfdFfnRanksPerDomain;
-    EP_DEVICE_ASSERT(afd_holder);
     // afdEP directional: an FFN domain's staging would otherwise overlap its dispatch scale-out inbox,
     // which an Attention domain writes for exchange N+1 as soon as its own combine-N signals arrive,
     // possibly while this NIC is still reading staging for another Attention domain. With one
@@ -118,9 +118,19 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
             token_layout, kAllowMultipleReduction ? 1 : kNumTopk, kNumChannels * (kNumScaleoutRanks * kNumMaxTokensPerChannel),
             afd_scaleout_send_base);
     }
+    // afdEP per-domain: every rank's combine staging lives in the slice at the window end and
+    // its reply inbox in the slice just before it, past every dispatch region, so neither
+    // overlaps an inbox a peer on this rail writes for the next exchange (afdep_roles.hpp).
+    EP_DEVICE_ASSERT(afd_scaleout_send_base != nullptr);
+    scaleout_send_buffer = layout::BufferLayout<false>(
+        token_layout, kAllowMultipleReduction ? 1 : kNumTopk, kNumChannels * (kNumScaleoutRanks * kNumMaxTokensPerChannel),
+        afd_scaleout_send_base);
+    scaleout_recv_buffer = layout::BufferLayout<false>(
+        token_layout, kNumTokensInScaleoutLayout, kNumMaxTokensPerRank,
+        math::advance_ptr(afd_scaleout_send_base, -scaleout_recv_buffer.get_num_bytes()));
     comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,
                       kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridCombineTag0, false, true, true>(
-        gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, not afd_holder,
+        gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, /* afdEP per-domain: no rail half (afdep_roles.hpp) */ false,
         /* Attention domains share no state in directional mode */ not kAfdDirectional or afd_ffn_domain);
 
     // Adjust register count at certain cases
@@ -614,7 +624,8 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
         EP_STATIC_ASSERT(kNumScaleoutRanks <= 32, "Invalid ranks");
         // afdEP directional: FFN domains signal Attention domains only, and only Attention
         // domains wait (for FFN signals).
-        // afdEP per-domain: FFN rails carry no replies, so no signals either way.
+        // afdEP per-domain: FFN rails carry no replies, so no signals either way;
+        // Attention rails signal on their own words, not the dispatch tails'.
         const bool afd_signal = not afd_holder;
         const bool afd_wait = not afd_holder;
         if (lane_idx < kNumScaleoutRanks) {
@@ -622,12 +633,12 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
             const auto expected_signal = math::pack2<int, int64_t>(1, 0);
             if (afd_signal) {
                 gin.red_add_rel<ncclTeamTagRail>(
-                    workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx),
+                    afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, scaleout_rank_idx),
                     expected_signal, lane_idx);
             }
 
             // Wait tail arrival
-            const auto wait_ptr = workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx);
+            const auto wait_ptr = afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, lane_idx);
             comm::timeout_while<kNumTimeoutCycles>(afd_wait, [=](const bool& is_last_check) {
                 const auto signal = ptx::ld_acquire_sys<int64_t>(wait_ptr);
                 if (signal == expected_signal) {

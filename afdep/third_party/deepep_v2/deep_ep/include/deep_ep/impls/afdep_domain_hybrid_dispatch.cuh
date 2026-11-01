@@ -100,14 +100,14 @@ afdep_domain_hybrid_dispatch_impl(
     EP_STATIC_ASSERT(not kAfdDirectional and 0 < kAfdFfnRanksPerDomain and kAfdFfnRanksPerDomain < kNumScaleupRanks,
                      "per-domain: the union template with an FFN prefix in every domain");
     const bool afd_holder = scaleup_rank_idx < kAfdFfnRanksPerDomain;
-    EP_DEVICE_ASSERT(afd_holder and num_tokens == 0);
+    EP_DEVICE_ASSERT(not afd_holder or num_tokens == 0);
     // Attention domains run neither barrier half here; the grid sync that would hold
     // their CTAs behind it guards no cross-CTA state (SM0's notify reduction counts
     // its own arrivals and send-buffer reuse follows the round trip), so it is skipped.
     if (not (kAfdSkipAttentionEntrySync and not afd_ffn_domain)) {
         comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,
                           kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridDispatchTag0, false, false, true>(
-            gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, not afd_holder,
+            gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, /* afdEP per-domain: no rail half (afdep_roles.hpp) */ false,
             /* Attention domains share no state in directional mode */ not kAfdDirectional or afd_ffn_domain);
     }
 

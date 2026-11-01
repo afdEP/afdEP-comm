@@ -987,6 +987,23 @@ FP8_COMBINE_EPILOGUE_EDITS = (
 # They send and wait for no counts, tails or signals across domains and run no rail
 # barrier half; their NVLink work (scale-up counts, list ends, partials, all three
 # scale-up barriers) is the union kernel's.
+# Attention GPUs (local ranks [f, U)) are each a source and their rail's forwarder for
+# every other domain, so an Attention rail carries both phases both ways. They keep the
+# union kernel's work but run no rail barrier half either: every exchange-(N+1) write
+# across domains follows its reader's exchange-N reads through the round trip, combine
+# signals take their own words (afdep_domain_hybrid.cuh) instead of sharing the dispatch
+# tails' words with them, and every rank's reply inbox and combine staging live in the
+# slices reserved at the window end (calculate_buffer_size).
+DOMAIN_INCLUDE = (
+    "#include <deep_ep/impls/combine_utils.cuh>\n",
+    "#include <deep_ep/impls/combine_utils.cuh>\n"
+    "#include <deep_ep/impls/afdep_domain_hybrid.cuh>\n",
+)
+DOMAIN_NO_RAIL_HALF = (
+    "sm_idx, thread_idx, not kAfdDirectional,\n",
+    "sm_idx, thread_idx, /* afdEP per-domain: no rail half (afdep_roles.hpp) */"
+    " false,\n",
+)
 DOMAIN_TEMPLATE_NOTE = (
     "          // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN GPUs are local"
     " ranks [0, f).\n"
@@ -1016,12 +1033,9 @@ DOMAIN_HYBRID_DISPATCH_EDITS = (
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n",
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n"
         + DOMAIN_HOLDER
-        + "    EP_DEVICE_ASSERT(afd_holder and num_tokens == 0);\n",
+        + "    EP_DEVICE_ASSERT(not afd_holder or num_tokens == 0);\n",
     ),
-    (
-        "sm_idx, thread_idx, not kAfdDirectional,\n",
-        "sm_idx, thread_idx, not afd_holder,\n",
-    ),
+    DOMAIN_NO_RAIL_HALF,
     (
         "                (not kAfdDirectional or (not afd_ffn_domain and thread_idx < "
         "kAfdFfnScaleoutRanks))) {\n",
@@ -1062,26 +1076,60 @@ DOMAIN_HYBRID_COMBINE_EDITS = (
         "          int kAfdFfnScaleoutRanks = 0,\n",
         "          int kAfdFfnScaleoutRanks = 0,\n" + DOMAIN_TEMPLATE_NOTE,
     ),
+    DOMAIN_INCLUDE,
     ("hybrid_combine_impl(", "afdep_domain_hybrid_combine_impl("),
     (
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n",
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n"
-        + DOMAIN_HOLDER
-        + "    EP_DEVICE_ASSERT(afd_holder);\n",
+        + DOMAIN_HOLDER,
     ),
     (
-        "sm_idx, thread_idx, not kAfdDirectional,\n",
-        "sm_idx, thread_idx, not afd_holder,\n",
+        "    comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,\n"
+        "                      kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, "
+        "comm::kHybridCombineTag0",
+        "    // afdEP per-domain: every rank's combine staging lives in the slice"
+        " at the window end and\n"
+        "    // its reply inbox in the slice just before it, past every dispatch"
+        " region, so neither\n"
+        "    // overlaps an inbox a peer on this rail writes for the next exchange"
+        " (afdep_roles.hpp).\n"
+        "    EP_DEVICE_ASSERT(afd_scaleout_send_base != nullptr);\n"
+        "    scaleout_send_buffer = layout::BufferLayout<false>(\n"
+        "        token_layout, kAllowMultipleReduction ? 1 : kNumTopk, kNumChannels *"
+        " (kNumScaleoutRanks * kNumMaxTokensPerChannel),\n"
+        "        afd_scaleout_send_base);\n"
+        "    scaleout_recv_buffer = layout::BufferLayout<false>(\n"
+        "        token_layout, kNumTokensInScaleoutLayout, kNumMaxTokensPerRank,\n"
+        "        math::advance_ptr(afd_scaleout_send_base, "
+        "-scaleout_recv_buffer.get_num_bytes()));\n"
+        "    comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,\n"
+        "                      kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, "
+        "comm::kHybridCombineTag0",
     ),
+    DOMAIN_NO_RAIL_HALF,
     (
         "        const bool afd_signal = not kAfdDirectional or (afd_ffn_domain and "
         "lane_idx >= kAfdFfnScaleoutRanks);\n"
         "        const bool afd_wait = not kAfdDirectional or (not afd_ffn_domain and "
         "lane_idx < kAfdFfnScaleoutRanks);\n",
         "        // afdEP per-domain: FFN rails carry no replies, so no signals either"
-        " way.\n"
+        " way;\n"
+        "        // Attention rails signal on their own words, not the dispatch"
+        " tails'.\n"
         "        const bool afd_signal = not afd_holder;\n"
         "        const bool afd_wait = not afd_holder;\n",
+    ),
+    (
+        "                    workspace_layout.get_scaleout_channel_signaled_tail_ptr("
+        "channel_idx, scaleout_rank_idx),\n",
+        "                    afdep_domain_combine_signal_ptr(workspace_layout, "
+        "channel_idx, scaleout_rank_idx),\n",
+    ),
+    (
+        "            const auto wait_ptr = workspace_layout."
+        "get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx);\n",
+        "            const auto wait_ptr = afdep_domain_combine_signal_ptr("
+        "workspace_layout, channel_idx, lane_idx);\n",
     ),
 )
 
