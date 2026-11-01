@@ -5,7 +5,6 @@
 #include <deep_ep/common/math.cuh>
 #include <deep_ep/common/ptx.cuh>
 #include <deep_ep/impls/combine_utils.cuh>
-#include <deep_ep/impls/afdep_domain_hybrid.cuh>
 
 namespace deep_ep::elastic {
 
@@ -106,6 +105,8 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
     EP_STATIC_ASSERT(not kAfdDirectional and 0 < kAfdFfnRanksPerDomain and kAfdFfnRanksPerDomain < kNumScaleupRanks,
                      "per-domain: the union template with an FFN prefix in every domain");
     const bool afd_holder = scaleup_rank_idx < kAfdFfnRanksPerDomain;
+    // afdEP per-domain: combine signals use the (channel, peer) words past the hybrid tails.
+    constexpr int64_t kAfdDomainCombineWords = static_cast<int64_t>(kNumMaxChannels) * 32;
     EP_STATIC_ASSERT(static_cast<int64_t>(kNumChannels) * kNumScaleoutRanks <= kAfdDomainCombineWords,
                      "per-domain: hybrid tails would reach the combine signal words");
     // afdEP directional: an FFN domain's staging would otherwise overlap its dispatch scale-out inbox,
@@ -132,7 +133,7 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
         math::advance_ptr(afd_scaleout_send_base, -scaleout_recv_buffer.get_num_bytes()));
     comm::gpu_barrier<true, kNumScaleoutRanks, kNumScaleupRanks,
                       kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, comm::kHybridCombineTag0, false, true, true>(
-        gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, /* afdEP per-domain: no rail half (afdep_roles.hpp) */ false,
+        gin, workspace_layout, scaleout_rank_idx, scaleup_rank_idx, sm_idx, thread_idx, not afd_holder,
         /* Attention domains share no state in directional mode */ not kAfdDirectional or afd_ffn_domain);
 
     // Adjust register count at certain cases
@@ -635,12 +636,13 @@ afdep_domain_hybrid_combine_impl(nv_bfloat16* x,
             const auto expected_signal = math::pack2<int, int64_t>(1, 0);
             if (afd_signal) {
                 gin.red_add_rel<ncclTeamTagRail>(
-                    afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, scaleout_rank_idx),
+                    workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx) + kAfdDomainCombineWords,
                     expected_signal, lane_idx);
             }
 
             // Wait tail arrival
-            const auto wait_ptr = afdep_domain_combine_signal_ptr(workspace_layout, channel_idx, lane_idx);
+            const auto wait_ptr = workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx) +
+                kAfdDomainCombineWords;
             comm::timeout_while<kNumTimeoutCycles>(afd_wait, [=](const bool& is_last_check) {
                 const auto signal = ptx::ld_acquire_sys<int64_t>(wait_ptr);
                 if (signal == expected_signal) {

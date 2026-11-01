@@ -325,9 +325,8 @@ static void __instantiate_kernel() {{
     }
 };
 
-// afdEP per-domain FFN prefix (afdep_roles.hpp): the union argument list and shape, with f appended,
-// through a generated copy of hybrid_dispatch.cuh that FFN GPUs (silent FFN rails) and Attention GPUs
-// (rails without entry barriers) of a per-domain FFN prefix run.
+// afdEP silent FFN rails (afdep_roles.hpp): the union argument list and shape, with f appended, through
+// a generated copy of hybrid_dispatch.cuh that FFN GPUs of a per-domain FFN prefix run.
 class AfdepDomainHybridDispatchRuntime final : public jit::LaunchRuntime<AfdepDomainHybridDispatchRuntime> {
 public:
     using Args = DispatchRuntime::Args;
@@ -630,8 +629,7 @@ static void launch_dispatch(void* x, void* sf,
         return;
     }
     if (args.afd_domain_ffn_ranks > 0) {
-        // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN GPUs (silent FFN rails) and Attention GPUs
-        // (rails without entry barriers) run the generated copy in the shared shape.
+        // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN and Attention GPUs run the generated copy.
         EP_HOST_ASSERT(afd_shape == AfdLaunchShape::kShared and num_notify_warps > 0 and
                        (scaleup_rank_idx >= args.afd_domain_ffn_ranks or num_tokens == 0));
         const auto domain_code = AfdepDomainHybridDispatchRuntime::generate(args);

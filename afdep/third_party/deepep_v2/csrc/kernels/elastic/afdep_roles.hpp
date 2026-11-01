@@ -43,17 +43,16 @@ static bool afdep_directed_exit() {
 // counters. AFDEP_GRID_SYNC_EXIT=1 keeps the grid-synced release as a control.
 // Per-domain FFN prefix (ffn_ranks_per_domain f > 0): every NVLink domain holds f FFN ranks,
 // its local ranks [0, f), and U - f Attention ranks, so FFN index j is rank (j / f) * U + j % f.
-// Every domain then holds both roles, which neither directional protocol below covers (single-role
-// domains; one FFN-holding domain): both selectors return 0, and these layouts run the union hybrid's
-// work with per-rank roles, silent FFN rails and Attention rails without entry barriers (below).
-// Sources still validate their real routes, and translate them to DeepEP's logical experts
-// (afdep_domain_routes.cuh) for dispatch and combine.
+// Every domain then holds both roles, which neither protocol below covers (single-role domains;
+// one FFN-holding domain), so these layouts run the union hybrid with per-rank roles: both
+// selectors return 0. Sources still validate their real routes, and translate them to DeepEP's
+// logical experts (afdep_domain_routes.cuh) for dispatch and combine.
 // Silent FFN rails (per-domain FFN prefix): every rail u < f joins FFN GPUs only, none of them a
 // source, so no cross-domain write ever happens on it (no counts, payload, tails, replies or
 // signals) and the rail halves of its barriers order nothing; DeepEP's rail barrier spans rail
 // peers only (ncclTeamTagRail). FFN GPUs then run afdep_domain_hybrid_{dispatch,combine}.cuh, which
 // skip every scale-out action and keep their NVLink work (scale-up counts, list ends, partials) and
-// all three scale-up barriers; Attention rails are below (without entry barriers). One protection
+// all three scale-up barriers; Attention rails are below afdep_mixed_hybrid. One protection
 // goes: the FFN GPUs' combine-entry rail barrier held their partials until every domain's dispatch
 // had completed, so an Attention forwarder's NIC had finished reading its dispatch staging, which
 // dispatch kernels end without flushing. Holders now write the forwarder's combine scale-up inbox
@@ -78,48 +77,6 @@ static bool afdep_domain_silent_rails(const int afd_ffn_ranks, const int num_sca
     const int regions = allow_multiple_reduction and num_scaleup_ranks <= num_topk ? afd_ffn_ranks_per_domain : num_topk;
     return afdep_domain_hybrid(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 and
         2 * regions <= num_scaleup_ranks;
-}
-
-// Attention rails without entry barriers (per-domain FFN prefix): every rail u >= f joins one Attention
-// GPU per domain, and each is a source and its rail's forwarder for every other domain, so the rail
-// carries both phases both ways. Its GPUs run afdep_domain_hybrid_{dispatch,combine}.cuh with the union
-// kernel's work but no rail half of the dispatch-entry or combine-entry barrier (the dispatch exit has
-// none). For X and Y on one rail, in different domains:
-// - Y writes X's dispatch inbox, count slots and finish tails for exchange N+1 only after Y's combine-N
-//   wait saw X's signal on every channel. X sends a channel's signal after that channel's last put and
-//   last read of X's combine scale-up inbox, and X's combine follows X's dispatch-N kernel, which read
-//   that inbox and those counts and cleared the tails and counts. The combine scale-up inbox may overlap
-//   the dispatch inbox at FP8; every channel's reads precede its signal.
-// - Y writes X's reply inbox and combine signals for exchange N only after Y's dispatch-N forwarders saw
-//   X's finish tails on every channel, which X sent after its combine N-1 wait and reduce epilogue.
-// - DeepEP keeps a peer's dispatch tail and its combine signal in one word, which a GPU that both
-//   forwards and collects receives from the same peer: Y's dispatch-(N+1) tail could land while X still
-//   waits there for Y's combine-N signal. Combine signals take their own words
-//   (afdep_domain_hybrid.cuh).
-// - Staging, as section 11: X's NIC may still read its combine staging (replies to another domain)
-//   when Y's next dispatch lands, and its dispatch staging when Y's replies land, so every rank's
-//   combine staging lives in the slice at the window end and its reply inbox in the slice before it,
-//   past every dispatch region (calculate_buffer_size). Dispatch staging stays below them. Local FFN
-//   GPUs write X's combine scale-up inbox while X's dispatch staging may still be read, as with silent
-//   FFN rails: under that gate (2L <= U) the regions are disjoint, and with union FFN GPUs their
-//   combine-entry rail barrier waits for every domain's dispatch exit, after its forwarders consumed
-//   X's tokens. Staging reuse: X rewrites dispatch staging after its combine-N wait saw every peer's
-//   signal (each after that peer consumed X's tokens), and combine staging after its dispatch-(N+1)
-//   forwarders saw every peer's tails (each after that peer's combine-N wait saw X's signals, which
-//   follow X's puts to it on the same QP).
-// - Inside a domain all three scale-up barriers stay, and a GPU's own lane follows its program order.
-// The argument assumes each dispatch is followed by its combine before the next dispatch on the
-// buffer (afdep/deepep.py allows one in-flight exchange): two dispatches in a row could land in an
-// inbox or tail word a peer's forwarders still read. FFN rails are disjoint from Attention rails, so
-// the per-call silent-rails gate does not change this choice. Returns f, or 0 (union).
-// AFDEP_UNION_HYBRID=1 keeps the union protocol as a control; like the other hybrid controls it is
-// read on every call but checked across ranks only at construction, so set it before constructing.
-static int afdep_domain_attention_rails(const int afd_ffn_ranks, const int num_scaleout_ranks,
-                                        const int num_scaleup_ranks, const int afd_ffn_ranks_per_domain) {
-    const bool on = afd_ffn_ranks_per_domain > 0 and num_scaleout_ranks > 1 and
-        afd_ffn_ranks == num_scaleout_ranks * afd_ffn_ranks_per_domain and
-        afd_ffn_ranks_per_domain < num_scaleup_ranks and deep_ep::get_env<int>("AFDEP_UNION_HYBRID", 0) == 0;
-    return on ? afd_ffn_ranks_per_domain : 0;
 }
 
 // Directional hybrid protocol: when every scale-out (NVLink) domain holds a single
@@ -171,6 +128,26 @@ static int afdep_mixed_hybrid(const int afd_ffn_ranks, const int num_scaleout_ra
         deep_ep::get_env<int>("AFDEP_UNION_HYBRID", 0) != 0 or deep_ep::get_env<int>("AFDEP_MIXED_HYBRID", 0) == 0)
         return 0;
     return afd_ffn_ranks;
+}
+
+// Attention rails without the dispatch-entry barrier (per-domain FFN prefix, when afdep_domain_hybrid
+// holds): each Attention GPU X is a source and its rail's forwarder, so its rail carries both phases both
+// ways. X runs the per-domain copies with the union kernels' work, the combine-entry barrier, and no rail
+// half of the dispatch-entry barrier, which held a peer's next dispatch until X had finished combining.
+// A peer Y on the rail now writes X's dispatch inbox, counts and tails for exchange N+1 only after Y's
+// combine-N wait saw X's signal on every channel, which X sends after that channel's last put and last
+// read and after its dispatch-N kernel. What X may still do then: wait for other peers' signals in words
+// DeepEP shares with Y's dispatch tails, reduce its replies, and read combine staging for another domain
+// (section 11). So combine signals take their own words, and every rank's reply inbox and combine staging
+// live in the slices at the window end (afdep_end_slices). FFN GPUs keep their own per-call choice (silent
+// FFN rails or union); the rails are disjoint. The argument assumes one dispatch and its combine per
+// exchange, which afdep/deepep.py enforces.
+
+// Layouts whose reply inbox and combine staging live in the slices reserved at the window end.
+static bool afdep_end_slices(const int afd_ffn_ranks, const int num_scaleout_ranks, const int num_scaleup_ranks,
+                             const int afd_ffn_ranks_per_domain) {
+    return afdep_mixed_hybrid(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 or
+        afdep_domain_hybrid(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0;
 }
 
 // Directional hybrid dispatch, and direct dispatch over GIN (hybrid off across

@@ -987,18 +987,9 @@ FP8_COMBINE_EPILOGUE_EDITS = (
 # They send and wait for no counts, tails or signals across domains and run no rail
 # barrier half; their NVLink work (scale-up counts, list ends, partials, all three
 # scale-up barriers) is the union kernel's.
-# Attention GPUs (local ranks [f, U)) are each a source and their rail's forwarder for
-# every other domain, so an Attention rail carries both phases both ways. They keep the
-# union kernel's work but run no rail barrier half either: every exchange-(N+1) write
-# across domains follows its reader's exchange-N reads through the round trip, combine
-# signals take their own words (afdep_domain_hybrid.cuh) instead of sharing the dispatch
-# tails' words with them, and every rank's reply inbox and combine staging live in the
-# slices reserved at the window end (calculate_buffer_size).
-DOMAIN_INCLUDE = (
-    "#include <deep_ep/impls/combine_utils.cuh>\n",
-    "#include <deep_ep/impls/combine_utils.cuh>\n"
-    "#include <deep_ep/impls/afdep_domain_hybrid.cuh>\n",
-)
+# Attention GPUs keep the union kernel's work without the dispatch-entry rail half;
+# their combine signals take words past the hybrid tails, and every rank's reply inbox
+# and combine staging live in the slices at the window end (afdep_roles.hpp).
 DOMAIN_NO_RAIL_HALF = (
     "sm_idx, thread_idx, not kAfdDirectional,\n",
     "sm_idx, thread_idx, /* afdEP per-domain: no rail half (afdep_roles.hpp) */"
@@ -1076,13 +1067,16 @@ DOMAIN_HYBRID_COMBINE_EDITS = (
         "          int kAfdFfnScaleoutRanks = 0,\n",
         "          int kAfdFfnScaleoutRanks = 0,\n" + DOMAIN_TEMPLATE_NOTE,
     ),
-    DOMAIN_INCLUDE,
     ("hybrid_combine_impl(", "afdep_domain_hybrid_combine_impl("),
     (
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n",
         "    const bool afd_ffn_domain = scaleout_rank_idx < kAfdFfnScaleoutRanks;\n"
         + DOMAIN_HOLDER
-        + "    EP_STATIC_ASSERT(static_cast<int64_t>(kNumChannels) * kNumScaleoutRanks"
+        + "    // afdEP per-domain: combine signals use the (channel, peer) words past"
+        " the hybrid tails.\n"
+        "    constexpr int64_t kAfdDomainCombineWords = static_cast<int64_t>("
+        "kNumMaxChannels) * 32;\n"
+        "    EP_STATIC_ASSERT(static_cast<int64_t>(kNumChannels) * kNumScaleoutRanks"
         " <= kAfdDomainCombineWords,\n"
         '                     "per-domain: hybrid tails would reach the combine signal'
         ' words");\n',
@@ -1110,7 +1104,10 @@ DOMAIN_HYBRID_COMBINE_EDITS = (
         "                      kNumSMs, kNumThreads, kNumQPs, kNumTimeoutCycles, "
         "comm::kHybridCombineTag0",
     ),
-    DOMAIN_NO_RAIL_HALF,
+    (
+        "sm_idx, thread_idx, not kAfdDirectional,\n",
+        "sm_idx, thread_idx, not afd_holder,\n",
+    ),
     (
         "        const bool afd_signal = not kAfdDirectional or (afd_ffn_domain and "
         "lane_idx >= kAfdFfnScaleoutRanks);\n"
@@ -1126,14 +1123,15 @@ DOMAIN_HYBRID_COMBINE_EDITS = (
     (
         "                    workspace_layout.get_scaleout_channel_signaled_tail_ptr("
         "channel_idx, scaleout_rank_idx),\n",
-        "                    afdep_domain_combine_signal_ptr(workspace_layout, "
-        "channel_idx, scaleout_rank_idx),\n",
+        "                    workspace_layout.get_scaleout_channel_signaled_tail_ptr("
+        "channel_idx, scaleout_rank_idx) + kAfdDomainCombineWords,\n",
     ),
     (
         "            const auto wait_ptr = workspace_layout."
         "get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx);\n",
-        "            const auto wait_ptr = afdep_domain_combine_signal_ptr("
-        "workspace_layout, channel_idx, lane_idx);\n",
+        "            const auto wait_ptr = workspace_layout."
+        "get_scaleout_channel_signaled_tail_ptr(channel_idx, lane_idx) +\n"
+        "                kAfdDomainCombineWords;\n",
     ),
 )
 

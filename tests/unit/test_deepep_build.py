@@ -229,22 +229,15 @@ def test_silent_ffn_rail_kernels_have_one_runtime_each():
         text = (rk.IMPLS / name).read_text()
         assert "afdep_sparse_hybrid.cuh" not in text and "afdep_fp8_combine" not in text
         assert text.count("afd_holder = scaleup_rank_idx < kAfdFfnRanksPerDomain;") == 1
-        # Neither role runs a rail half of an entry barrier (afdep_roles.hpp).
-        assert text.count("no rail half (afdep_roles.hpp) */ false,") == 1, name
-
-
-def test_attention_rail_combine_signals_take_their_own_words():
-    """Per-domain combine signals and waits use only the words past the hybrid tails."""
-    from tests import role_kernels as rk
-
+    # Only the dispatch-entry barrier loses its rail half (afdep_roles.hpp).
+    dispatch_copy = (rk.IMPLS / rk.DOMAIN_HYBRID_DISPATCH).read_text()
+    assert dispatch_copy.count("no rail half (afdep_roles.hpp) */ false,") == 1
+    # Combine signals and waits (its only two tail-word uses) sit past the hybrid tails.
     domain = (rk.IMPLS / rk.DOMAIN_HYBRID_COMBINE).read_text()
-    assert domain.count("afdep_domain_combine_signal_ptr(") == 2
-    assert "get_scaleout_channel_signaled_tail_ptr" not in domain
-    header = "#include <deep_ep/impls/afdep_domain_hybrid.cuh>"
-    assert domain.count(header) == 1
-    others = sorted(set(rk.IMPLS.glob("*.cuh")) - {rk.IMPLS / rk.DOMAIN_HYBRID_COMBINE})
-    for path in others:
-        assert header not in path.read_text(), path.name
+    assert "no rail half" not in domain
+    assert domain.count("get_scaleout_channel_signaled_tail_ptr(") == 2
+    # Definition, bound, signal, wait.
+    assert domain.count("kAfdDomainCombineWords") == 4
 
 
 def test_fp8_combine_kernels_stay_out_of_shared_runtimes():

@@ -270,9 +270,8 @@ public:
     }
 };
 
-// afdEP per-domain FFN prefix (afdep_roles.hpp): the union hybrid combine's arguments and shape, with f
-// appended, through afdep_domain_hybrid_combine.cuh, which FFN GPUs (silent FFN rails) and Attention
-// GPUs (rails without entry barriers) of a per-domain FFN prefix run.
+// afdEP silent FFN rails (afdep_roles.hpp): the union hybrid combine's arguments and shape, with f
+// appended, through afdep_domain_hybrid_combine.cuh, which FFN GPUs of a per-domain FFN prefix run.
 class AfdepDomainHybridCombineRuntime final : public jit::LaunchRuntime<AfdepDomainHybridCombineRuntime> {
 public:
     using Args = CombineRuntime::Args;
@@ -294,8 +293,7 @@ public:
     }
 };
 
-// afdEP mixed-role hybrid and per-domain copy: every rank's reply inbox, just before the staging slice
-// (calculate_buffer_size).
+// afdEP mixed-role hybrid: every rank's reply inbox, just before the staging slice (calculate_buffer_size).
 static void* afdep_mixed_reply_buffer(void* afd_scaleout_send_base, const layout::TokenLayout& token_layout,
                                       const int& num_scaleout_ranks, const int& num_max_tokens_per_rank,
                                       const int& num_topk, const bool& allow_multiple_reduction) {
@@ -451,9 +449,8 @@ static void* launch_combine(void* x,
                                         num_max_tokens_per_rank, num_topk, allow_multiple_reduction);
     }
     if (args.afd_domain_ffn_ranks > 0) {
-        // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN GPUs (silent FFN rails) and Attention GPUs
-        // (rails without entry barriers) run the generated copy in the shared shape, whose reply inbox
-        // is the slice before the staging slice.
+        // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN and Attention GPUs run the generated copy,
+        // whose reply inbox is the slice before the staging slice.
         EP_HOST_ASSERT(afd_shape == AfdLaunchShape::kShared);
         const auto domain_code = AfdepDomainHybridCombineRuntime::generate(args);
         const auto domain_runtime = jit::compiler->build("afdep_domain_hybrid_combine", domain_code);

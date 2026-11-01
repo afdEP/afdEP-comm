@@ -229,16 +229,12 @@ public:
     // The mixed-role hybrid (afdep_roles.hpp) is reported the same way: its F, wire-visible.
     // The fifth and sixth elements are the latched FP8 combine replies setting and its minimum bucket
     // (directional hybrid only).
-    // The seventh is the per-domain FFN prefix's protocol (afdep_roles.hpp): bit 0, silent FFN rails
-    // (afdep_domain_hybrid); bit 1, Attention rails without entry barriers; 0, union.
+    // The seventh is the per-domain FFN prefix's protocol (afdep_domain_hybrid: 1, silent FFN rails; 0, union).
     std::tuple<int, bool, bool, int, bool, int, int> get_afd_sparse_hybrid_config() const {
         if (afd_ffn_ranks > 0 and afd_ffn_ranks_per_domain > 0)
             return {0, false, false, 0, false, 0,
                     afdep_domain_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
-                                        nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) |
-                    (afdep_domain_attention_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
-                                                  nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 ?
-                         2 : 0)};
+                                        nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain)};
         if (afd_ffn_ranks > 0) {
             const int mixed = afdep_mixed_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
                                                  nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain);
@@ -758,12 +754,10 @@ public:
             num_scaleout_ranks, num_scaleup_ranks,
             is_scaleup_nvlink, allow_multiple_reduction, afd_role_ffn_ranks);
 
-        // afdEP mixed-role hybrid and Attention rails without entry barriers (afdep_roles.hpp): the reply
-        // inbox and the combine staging of every rank get slices past both layouts.
-        if (afd_ffn_ranks > 0 and (afdep_mixed_hybrid(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks,
-                                                   afd_ffn_ranks_per_domain) > 0 or
-                                   afdep_domain_attention_rails(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks,
-                                                                afd_ffn_ranks_per_domain) > 0)) {
+        // afdEP mixed-role hybrid and per-domain FFN prefix (afdep_roles.hpp): the reply inbox and the
+        // combine staging of every rank get slices past both layouts.
+        if (afd_ffn_ranks > 0 and afdep_end_slices(afd_ffn_ranks, num_scaleout_ranks, num_scaleup_ranks,
+                                                afd_ffn_ranks_per_domain)) {
             return std::max(num_dispatch_bytes, num_combine_bytes) +
                 get_hybrid_combine_reply_bytes(num_max_tokens_per_rank, hidden, num_topk, num_scaleout_ranks,
                                                allow_multiple_reduction) +
@@ -921,13 +915,13 @@ public:
             afdep_directional_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
                                      nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) : 0;
         const bool afd_hybrid_routes_in_kernel = afd_ffn_scaleout_ranks > 0 and afdep_hybrid_routes_in_kernel();
-        // afdEP per-domain FFN prefix (afdep_roles.hpp), through the generated per-domain copy: FFN GPUs with
-        // silent FFN rails skip every scale-out action, Attention GPUs run their rails without entry barriers.
-        const int afd_domain_ffn_ranks = not afd_role_aware or deterministic ? 0 : afd_source ?
-            afdep_domain_attention_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
-                                         nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) :
-            afdep_domain_silent_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
-                                      afd_ffn_ranks_per_domain, num_topk, allow_multiple_reduction) ?
+        // afdEP per-domain FFN prefix (afdep_roles.hpp): FFN GPUs (silent FFN rails, per call) and Attention
+        // GPUs (rails without entry barriers) run the generated per-domain copy.
+        const int afd_domain_ffn_ranks = afd_role_aware and not deterministic and
+            (afd_source ? afdep_domain_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
+                                              nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 :
+             afdep_domain_silent_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
+                                       afd_ffn_ranks_per_domain, num_topk, allow_multiple_reduction)) ?
             afd_ffn_ranks_per_domain : 0;
         // Per-domain FFN prefix: dispatch reads (and copies for combine) the logical IDs.
         auto afd_logical_topk_idx = std::optional<torch::Tensor>();
@@ -1117,14 +1111,10 @@ public:
                        num_max_tokens_per_rank, hidden, num_sf_packs, num_topk, x.element_size(),
                        nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
                        nccl_context->is_scaleup_nvlink, afd_role_buffers ? afd_ffn_ranks : 0) <= num_buffer_bytes);
-        // afdEP mixed-role hybrid and Attention rails without entry barriers: this call's dispatch layout
-        // ends below the reply and staging slices its combine places at the window end (same bucket and
-        // top-k).
-        if (afd_ffn_ranks > 0 and
-            (afdep_mixed_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
-                                afd_ffn_ranks_per_domain) > 0 or
-             afdep_domain_attention_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
-                                          nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0)) {
+        // afdEP mixed-role hybrid and per-domain FFN prefix: this call's dispatch layout ends below the reply
+        // and staging slices its combine places at the window end (same bucket and top-k).
+        if (afd_ffn_ranks > 0 and afdep_end_slices(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
+                                                   nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain)) {
             EP_HOST_ASSERT(get_dispatch_buffer_size(
                                num_max_tokens_per_rank, hidden, num_sf_packs, num_topk, x.element_size(),
                                nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
@@ -1537,20 +1527,12 @@ public:
         const int afd_ffn_scaleout_ranks = afd_mixed_ffn_ranks > 0 ? 1 : afd_ffn_ranks > 0 and not deterministic ?
             afdep_directional_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
                                      nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) : 0;
-        // afdEP per-domain FFN prefix (afdep_roles.hpp), through the generated per-domain copy: FFN GPUs with
-        // silent FFN rails, Attention GPUs on rails without entry barriers.
-        const bool afd_domain_rails = afd_ffn_ranks > 0 and not deterministic and
-            afdep_domain_attention_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
-                                         nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0;
-        const int afd_domain_ffn_ranks = afd_ffn_ranks <= 0 or deterministic ? 0 : not afd_worker ?
-            (afd_domain_rails ? afd_ffn_ranks_per_domain : 0) :
-            afdep_domain_silent_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
-                                      afd_ffn_ranks_per_domain, num_topk, allow_multiple_reduction) ?
-            afd_ffn_ranks_per_domain : 0;
         void* afd_scaleout_send_base = nullptr;
-        if (afd_mixed_ffn_ranks > 0 or afd_domain_rails) {
-            // afdEP mixed-role hybrid and per-domain copy: staging slice at the window end, every rank's reply
-            // inbox before it, both past this call's combine layout (calculate_buffer_size reserved both).
+        if (afd_ffn_ranks > 0 and not deterministic and
+            afdep_end_slices(afd_ffn_ranks, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks,
+                             afd_ffn_ranks_per_domain)) {
+            // afdEP mixed-role hybrid and per-domain FFN prefix: staging slice at the window end, every rank's
+            // reply inbox before it, both past this call's combine layout.
             const auto num_send_bytes = get_hybrid_combine_send_bytes(
                 num_max_tokens_per_rank, hidden, num_topk, nccl_context->num_scaleout_ranks, allow_multiple_reduction);
             const auto num_reply_bytes = get_hybrid_combine_reply_bytes(
@@ -1609,7 +1591,12 @@ public:
             afd_combine_shape,
             afd_mixed_ffn_ranks,
             afd_fp8_replies,
-            afd_domain_ffn_ranks);
+            afd_ffn_ranks > 0 and not deterministic and
+                (not afd_worker ? afdep_domain_hybrid(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
+                                                      nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 :
+                 afdep_domain_silent_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
+                                           nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain, num_topk,
+                                           allow_multiple_reduction)) ? afd_ffn_ranks_per_domain : 0);
 
         // Allocate output tensors
         // afdEP single-FFN collect view: with one FFN rank in one NVLink domain (rank layout), each
