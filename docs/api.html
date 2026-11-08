@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">API contract | afdEP-comm</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://afdep.github.io/afdEP-comm/docs/api"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="API contract | afdEP-comm"><meta data-rh="true" name="description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><meta data-rh="true" property="og:description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><link data-rh="true" rel="canonical" href="https://afdep.github.io/afdEP-comm/docs/api"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="en"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"API contract","item":"https://afdep.github.io/afdEP-comm/docs/api"}]}</script><link rel="stylesheet" href="/afdEP-comm/assets/css/styles.6dee7785.css">
-<script src="/afdEP-comm/assets/js/runtime~main.8663ea56.js" defer="defer"></script>
-<script src="/afdEP-comm/assets/js/main.31945760.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/runtime~main.cee6d688.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/main.6603af81.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -18,7 +18,12 @@ outside CUDA capture. The caller owns a CPU <strong>Gloo</strong> process group,
 current CUDA device first, and keeps the group alive until close.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="roles-and-tensors">Roles and tensors<a href="#roles-and-tensors" class="hash-link" aria-label="Direct link to Roles and tensors" title="Direct link to Roles and tensors" translate="no">​</a></h2>
 <p>FFN ranks come first; each owns <code>num_experts / ffn_ranks</code> consecutive real experts.
-Attention ranks follow. Every rank uses identical configuration, exchange order,
+Attention ranks follow. With <code>Config(ffn_ranks_per_domain=f)</code> the FFN ranks are instead
+the first f ranks of every NVLink domain (U ranks each), so every node can hold FFN ranks:
+FFN index j is rank <code>(j // f) * U + j % f</code> (<code>Config.ffn_rank</code>) and still owns real experts
+<code>[j * E, (j + 1) * E)</code>. <code>Buffer.role_rank</code> is the rank&#x27;s FFN or Attention index
+(<code>Config.role_rank</code>). The physical domains must match: F / f domains of W·f / F ranks,
+with hybrid mode on or off (direct RDMA). Every rank uses identical configuration, exchange order,
 <code>bucket</code>, and <code>read_host_counts</code> policy. Only one unmatched dispatch per Buffer
 is allowed. IDs must be unique per token, in <code>[0, num_experts)</code>, or <code>-1</code> to skip.
 Use <code>buffer.topk_idx_dtype</code>; invalid real-role routes assert on the GPU, including
@@ -93,15 +98,21 @@ work and frees registered storage; destroy graphs before closing the Buffer.</p>
 <p>afdEP-comm keeps DeepEP&#x27;s uniform logical expert numbering (Attention ranks own empty
 expert blocks, never legal routing targets) and its collective participation. The
 low-level connector interface is <code>afdep.deepep.ElasticBuffer</code>: pass <code>ffn_ranks=M</code> for
-afdEP-comm&#x27;s transport, as <code>Buffer</code> does from <code>Config</code>. Without <code>ffn_ranks</code> it runs DeepEP
+afdEP-comm&#x27;s transport, as <code>Buffer</code> does from <code>Config</code>; add <code>ffn_ranks_per_domain=f</code> for a
+per-domain FFN prefix, whose dispatch takes real expert IDs and maps them to the logical
+numbering itself (the FFN blocks are no longer <code>[0, F·E)</code>). Without <code>ffn_ranks</code> it runs DeepEP
 V2 as upstream ships it, over a symmetric group; the benchmarks use that for the
-baseline, FastAFD&#x27;s DeepEP M2N (<a href="/afdEP-comm/assets/files/fastafd-7c5b10cdfdc2acdc8dbb768161a52e0b.py" target="_blank" class="">benchmarks/fastafd.py</a>).</p>
+baseline, FastAFD&#x27;s DeepEP M2N (<a href="/afdEP-comm/assets/files/fastafd-5bd69461d11c3c450535d47ef575174d.py" target="_blank" class="">benchmarks/fastafd.py</a>).</p>
 <p><code>allow_hybrid_mode</code>, <code>num_sms</code>, <code>num_qps</code>, timeouts and RDMA traffic class pass
 through to the pinned transport. <code>num_sms=0</code> selects approximately 24/132 of the
 smallest device&#x27;s SM count; choose/tune explicitly for a workload. Both hybrid
 settings are validated in one NVLink domain and across NVLink domains joined by GIN.
 Across domains, role specialization runs the directional hybrid when every domain
 holds one role, and the union hybrid otherwise (<a class="" href="/afdEP-comm/docs/design">design</a>, sections 6 and 7).
+A per-domain FFN prefix puts both roles in every domain, so it runs the union hybrid&#x27;s work
+with per-rank roles, silent FFN rails and Attention rails without the dispatch-entry barrier
+(section 20).
+Like the other hybrid controls, <code>AFDEP_UNION_HYBRID</code> must be set before construction.
 The directional hybrid always signals only the channels that carry tokens (the sparse
 directional hybrid, section 17 and <a class="" href="/afdEP-comm/docs/sparse-hybrid">sparse-hybrid.md</a>); there is
 nothing to set. The opt-in mixed-role path (<code>AFDEP_MIXED_HYBRID</code>, section 18) changes

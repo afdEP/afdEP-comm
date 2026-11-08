@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">afdEP-comm: DeepEP V2 specialized for AFD roles | afdEP-comm</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://afdep.github.io/afdEP-comm/docs/design"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="afdEP-comm: DeepEP V2 specialized for AFD roles | afdEP-comm"><meta data-rh="true" name="description" content="Baseline: FastAFD&#x27;s DeepEP M2N, the way FastAFD"><meta data-rh="true" property="og:description" content="Baseline: FastAFD&#x27;s DeepEP M2N, the way FastAFD"><link data-rh="true" rel="canonical" href="https://afdep.github.io/afdEP-comm/docs/design"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/design" hreflang="en"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/design" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"afdEP-comm: DeepEP V2 specialized for AFD roles","item":"https://afdep.github.io/afdEP-comm/docs/design"}]}</script><link rel="stylesheet" href="/afdEP-comm/assets/css/styles.6dee7785.css">
-<script src="/afdEP-comm/assets/js/runtime~main.8663ea56.js" defer="defer"></script>
-<script src="/afdEP-comm/assets/js/main.31945760.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/runtime~main.cee6d688.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/main.6603af81.js" defer="defer"></script>
 </head>
 <body>
 <svg style="display: none;"><defs>
@@ -16,7 +16,7 @@
 runs AFD over DeepEP V2 (<a href="https://github.com/hao-ai-lab/FastAFD/blob/3c7161949310b6d59d6b4cf9bf997a4935c8113b/python/minisgl/moe/deepep_m2n_adapter.py" target="_blank" rel="noopener noreferrer" class=""><code>DeepEPM2NAdapter</code></a>): one
 symmetric expert-parallel group, dummy expert slots on Attention ranks, every rank
 sending, receiving and waiting in both phases, upstream combine. The benchmarks run it
-over the same vendored kernels (<a href="/afdEP-comm/assets/files/fastafd-7c5b10cdfdc2acdc8dbb768161a52e0b.py" target="_blank" class="">benchmarks/fastafd.py</a>); tables
+over the same vendored kernels (<a href="/afdEP-comm/assets/files/fastafd-5bd69461d11c3c450535d47ef575174d.py" target="_blank" class="">benchmarks/fastafd.py</a>); tables
 below call it FastAFD M2N. afdEP-comm&#x27;s changes apply in one NVLink domain and across
 NVLink domains joined by GIN, and the baseline&#x27;s unspecialized instantiations keep the
 upstream template arguments and kernels. Records written before 1.1.0 call the baseline
@@ -1997,6 +1997,385 @@ off by default; the implementation exists only in the directional protocol, wher
 ratio concentrates reply bytes on the FFN NICs. It is also the one place the library
 quantizes (AGENTS.md keeps quantization policy with the caller): opt-in, lossy and off by
 default.</p>
+<h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="20-per-domain-ffn-prefix-ffn-ranks-on-every-node">20. Per-domain FFN prefix (FFN ranks on every node)<a href="#20-per-domain-ffn-prefix-ffn-ranks-on-every-node" class="hash-link" aria-label="Direct link to 20. Per-domain FFN prefix (FFN ranks on every node)" title="Direct link to 20. Per-domain FFN prefix (FFN ranks on every node)" translate="no">​</a></h3>
+<p>AFD basis: a serving deployment often scales by identical nodes, each running Attention
+and FFN GPUs (4A1F on a 5-GPU domain, 6A2F on an 8-GPU node). FFN ranks are ranks [0, F)
+and DeepEP numbers ranks node by node (<code>nccl.cu:118-119</code>), so every FFN rank lands on the
+first node(s) and these layouts could not run (#18).</p>
+<p>With <code>ffn_ranks_per_domain=f</code>, local ranks [0, f) of each of the D = F / f NVLink
+domains are FFN: FFN index j is rank (j / f)·U + j % f and still owns real experts
+[j·E, (j + 1)·E). Callers keep real IDs. The source&#x27;s route check
+(<code>afdep_domain_routes.cuh</code>, which replaces the route guard there) validates them as the
+guard does and writes DeepEP&#x27;s logical IDs, e + ⌊e / (f·E)⌋·(U − f)·E, which dispatch reads
+and copies for combine. Python requires the physical domains to be D × (W / D) with
+hybrid mode on, before the native constructor.</p>
+<p>Every domain then holds both roles, which neither directional protocol covers (section 7
+needs one role per domain, section 18 one FFN-holding domain). These layouts run the
+union hybrid with per-rank roles: both selectors return 0 for f &gt; 0, so the sparse parts
+and FP8 combine replies stay off, and shared device sources are unchanged.</p>
+<p>Correctness on <code>ece614e6</code>: the GPU suite passes on 2 × 4 H200 with f = 1 and 2 (BF16 and
+FP8, capacities 8 and 64, hidden 256 and 2048) and on 3 × 4 with f = 1 and 2, every
+check exact; FastAFD&#x27;s DeepEP M2N passes in the same layouts. Duplicate, out-of-range,
+negative and wide routes assert in the route check. The global-prefix layouts (one domain,
+FFN domain first, union and mixed-role with F &lt; U, FP8 combine) pass unchanged
+(<a href="/afdEP-comm/assets/files/validation-per-domain-480293c41ac6efb084b6dd0061a0635d.json" target="_blank" class="">record</a>).</p>
+<p>Results (comm-only, <a href="/afdEP-comm/assets/files/validation-per-domain-screens-3671d532a54dec3977e3203d9a32c1a5.json" target="_blank" class="">record</a>): kermit 4-GPU domains,
+FP8, hidden 4096, top-8, capacity 512, CUDA graphs, two fresh processes per arm, max over
+Attention ranks. Per-node FFN runs at FastAFD M2N&#x27;s speed in the same layout (FastAFD is
+0.4–1.7% faster: afdEP-comm&#x27;s route check is a kernel, and the baseline&#x27;s IDs were mapped
+outside timing). Against today&#x27;s layouts at the same rank counts it is slower up to 128
+tokens and faster only at 512, where spreading the FFN&#x27;s ingress over every node pays.
+Change against per-node FFN (negative: the other layout is faster):</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Layout</th><th style="text-align:right">T=1</th><th style="text-align:right">8</th><th style="text-align:right">32</th><th style="text-align:right">128</th><th style="text-align:right">512</th></tr></thead><tbody><tr><td>2 × 4, F = 2: per-node FFN (f = 1), µs</td><td style="text-align:right">120.6</td><td style="text-align:right">145.2</td><td style="text-align:right">155.1</td><td style="text-align:right">180.8</td><td style="text-align:right">388.5</td></tr><tr><td>FFN on node 0, union</td><td style="text-align:right">−2.6%</td><td style="text-align:right">−2.7%</td><td style="text-align:right">−1.8%</td><td style="text-align:right">−1.9%</td><td style="text-align:right">+4.2%</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">−20.5%</td><td style="text-align:right">−19.1%</td><td style="text-align:right">−19.2%</td><td style="text-align:right">−13.9%</td><td style="text-align:right">−5.3%</td></tr><tr><td>2 × 4, F = 4: per-node FFN (f = 2), µs</td><td style="text-align:right">103.0</td><td style="text-align:right">116.4</td><td style="text-align:right">121.7</td><td style="text-align:right">147.1</td><td style="text-align:right">294.0</td></tr><tr><td>FFN node + Attention node, directional</td><td style="text-align:right">−27.0%</td><td style="text-align:right">−26.1%</td><td style="text-align:right">−22.8%</td><td style="text-align:right">−18.4%</td><td style="text-align:right">−8.0%</td></tr><tr><td>3 × 4, F = 3: per-node FFN (f = 1), µs</td><td style="text-align:right">148.1</td><td style="text-align:right">162.8</td><td style="text-align:right">173.8</td><td style="text-align:right">219.1</td><td style="text-align:right">493.8</td></tr><tr><td>FFN on node 0, union</td><td style="text-align:right">−3.9%</td><td style="text-align:right">+0.1%</td><td style="text-align:right">−1.0%</td><td style="text-align:right">−2.2%</td><td style="text-align:right">+5.4%</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">−23.0%</td><td style="text-align:right">−18.1%</td><td style="text-align:right">−15.6%</td><td style="text-align:right">−12.0%</td><td style="text-align:right">+1.6%</td></tr></tbody></table>
+<p>So the layout runs, but the union protocol costs what the directional protocols removed:
+12–27% up to 128 tokens.</p>
+<p>Every rail now holds one role. Rails u &lt; f join only FFN GPUs: no source sits on them, so
+all they carry across domains is protocol words (zero counts, finish tails, combine
+signals and their rail barrier, which spans rail peers only). Rails u ≥ f join only
+Attention GPUs, and each is both a source and its rail&#x27;s forwarder for the other domains,
+so domain ingress uses U − f NICs. Two steps remained. First, FFN rails can skip all of that
+on their own. Second, Attention rails need their own ordering argument without the entry
+barriers: dispatch tails and combine signals share words that a dual-role GPU would receive
+in both phases, and sources now stage dispatch in domains that hold FFN ranks. Both are done
+below, with deferred-put fault injection for the second.</p>
+<p>Since then: FFN GPUs skip all of that (silent FFN rails, <code>afdep_domain_hybrid_*</code>; per call when
+the combine scale-up regions they write fit below a forwarder&#x27;s unflushed dispatch staging, 2L ≤ U;
+<a href="/afdEP-comm/assets/files/validation-silent-ffn-rails-1d6ca385c2254d34d74558314f569610.json" target="_blank" class="">record</a>), and the layout also runs with hybrid off, where each
+Attention GPU reaches each FFN GPU in one RDMA hop (<a href="/afdEP-comm/assets/files/validation-direct-per-domain-18e2347299360549225ce9f71d77ede8.json" target="_blank" class="">record</a>).
+That needed a fix to DeepEP itself: its direct kernels write NVLink-reachable peers with TMA stores,
+then pass a GIN barrier that flushes RDMA and signals through the NIC, so a same-node receiver could
+read stale rows whenever a node holds senders and receivers (FastAFD M2N too; 100% of a same-node
+source&#x27;s values on 2 × 4 with the FFN on node 0). The GIN barrier now fences at system scope first:
+8 of 8 runs passed with it, 8 of 8 failed without it or with only a proxy fence. It costs about
+2.5 µs at 1–8 tokens on the direct path and nothing on hybrid paths.</p>
+<p>Decode screen, round trip against per-node FFN on the direct path (<a href="/afdEP-comm/assets/files/validation-direct-per-domain-screens-06e5e70d40e779815fca35a5b1066bcb.json" target="_blank" class="">record</a>;
+same shapes as above, 4-GPU domains; negative: the other layout is faster):</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Layout</th><th style="text-align:right">T=1</th><th style="text-align:right">8</th><th style="text-align:right">32</th><th style="text-align:right">128</th><th style="text-align:right">512</th></tr></thead><tbody><tr><td>2 × 4, F = 2: per-node FFN (f = 1), direct, µs</td><td style="text-align:right">95.9</td><td style="text-align:right">113.2</td><td style="text-align:right">125.9</td><td style="text-align:right">201.4</td><td style="text-align:right">529.3</td></tr><tr><td>per-node FFN, hybrid (silent FFN rails)</td><td style="text-align:right">+7.1%</td><td style="text-align:right">+11.0%</td><td style="text-align:right">+9.4%</td><td style="text-align:right">−18.8%</td><td style="text-align:right">−30.0%</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">−8.2%</td><td style="text-align:right">−3.9%</td><td style="text-align:right">−5.6%</td><td style="text-align:right">−26.7%</td><td style="text-align:right">−31.7%</td></tr><tr><td>3 × 4, F = 3: per-node FFN (f = 1), direct, µs</td><td style="text-align:right">106.9</td><td style="text-align:right">117.1</td><td style="text-align:right">139.1</td><td style="text-align:right">288.9</td><td style="text-align:right">901.8</td></tr><tr><td>per-node FFN, hybrid (silent FFN rails)</td><td style="text-align:right">+23.4%</td><td style="text-align:right">+23.4%</td><td style="text-align:right">+11.4%</td><td style="text-align:right">−29.7%</td><td style="text-align:right">−47.2%</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">+2.7%</td><td style="text-align:right">+10.2%</td><td style="text-align:right">+0.6%</td><td style="text-align:right">−35.1%</td><td style="text-align:right">−44.8%</td></tr><tr><td>2 × 4, F = 4: per-node FFN (f = 2), direct, µs</td><td style="text-align:right">99.7</td><td style="text-align:right">104.2</td><td style="text-align:right">113.6</td><td style="text-align:right">156.7</td><td style="text-align:right">355.5</td></tr><tr><td>per-node FFN, hybrid (silent FFN rails)</td><td style="text-align:right">−13.0%</td><td style="text-align:right">−5.9%</td><td style="text-align:right">−8.1%</td><td style="text-align:right">−16.7%</td><td style="text-align:right">−21.6%</td></tr><tr><td>FFN node + Attention node, directional</td><td style="text-align:right">−31.5%</td><td style="text-align:right">−23.2%</td><td style="text-align:right">−23.0%</td><td style="text-align:right">−27.8%</td><td style="text-align:right">−25.9%</td></tr></tbody></table>
+<p>With one FFN GPU per node the single hop wins up to 32 tokens, and on three nodes it beats every
+FFN-first layout there. From 128 tokens hybrid wins: in direct mode every remote token for a node&#x27;s
+FFN GPU enters through that GPU&#x27;s NIC, while hybrid spreads the same bytes over the node&#x27;s Attention
+NICs and NVLink. With two FFN GPUs per node hybrid wins at every size. The direct path still runs
+DeepEP&#x27;s union protocol (FastAFD M2N is within 1.3%); sections 1–3 over RDMA are next.</p>
+<p>Since then: Attention rails without the dispatch-entry barrier. Every rail u ≥ f joins one Attention
+GPU per domain, each a source and its rail&#x27;s forwarder for the other domains, so neither
+directional protocol applies. These GPUs now also run the per-domain copies, with the union
+kernels&#x27; work and the combine-entry barrier but no rail half of the dispatch-entry barrier, which
+held a peer&#x27;s next dispatch until this GPU had finished combining (argument beside
+<code>afdep_end_slices</code> in <code>afdep_roles.hpp</code>). A peer&#x27;s next dispatch can now land while this GPU still
+waits for other peers&#x27; combine signals, reduces its replies or stages replies for a third domain,
+so combine signals take their own words (DeepEP shares them with dispatch tails), and every rank&#x27;s
+reply inbox and combine staging move into the slices at the window end, as in section 18. Each of
+the three is needed: a negative control without it fails below. Dropping the combine-entry barrier
+as well gains at most 0.8 points more (<a href="/afdEP-comm/assets/files/validation-attention-rails-d633121caed712d0517735f5e279e8b2.json" target="_blank" class="">record</a>, barrier split), so it stays.</p>
+<p>Comm-only screen (<a href="/afdEP-comm/assets/files/validation-attention-rails-d633121caed712d0517735f5e279e8b2.json" target="_blank" class="">record</a>): FP8, hidden 4096, top-8, capacity 512,
+4-GPU domains, two fresh processes per arm, every arm from its own tree, µs:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>2 × 4, f = 1</th><th style="text-align:right">T=1</th><th style="text-align:right">8</th><th style="text-align:right">32</th><th style="text-align:right">128</th><th style="text-align:right">512</th></tr></thead><tbody><tr><td>Per-node FFN, hybrid, before</td><td style="text-align:right">110.2</td><td style="text-align:right">135.3</td><td style="text-align:right">146.6</td><td style="text-align:right">171.6</td><td style="text-align:right">377.6</td></tr><tr><td>Per-node FFN, hybrid, without the dispatch-entry barrier</td><td style="text-align:right">107.1</td><td style="text-align:right">126.2</td><td style="text-align:right">138.6</td><td style="text-align:right">163.9</td><td style="text-align:right">369.7</td></tr><tr><td>FastAFD&#x27;s DeepEP M2N, per-node FFN</td><td style="text-align:right">119.2</td><td style="text-align:right">144.3</td><td style="text-align:right">155.0</td><td style="text-align:right">179.5</td><td style="text-align:right">386.7</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">95.9</td><td style="text-align:right">117.5</td><td style="text-align:right">126.0</td><td style="text-align:right">156.0</td><td style="text-align:right">368.2</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>3 × 4, f = 1</th><th style="text-align:right">T=1</th><th style="text-align:right">8</th><th style="text-align:right">32</th><th style="text-align:right">128</th><th style="text-align:right">512</th></tr></thead><tbody><tr><td>Per-node FFN, hybrid, before</td><td style="text-align:right">136.4</td><td style="text-align:right">150.1</td><td style="text-align:right">161.2</td><td style="text-align:right">208.8</td><td style="text-align:right">481.4</td></tr><tr><td>Per-node FFN, hybrid, without the dispatch-entry barrier</td><td style="text-align:right">132.1</td><td style="text-align:right">142.6</td><td style="text-align:right">155.2</td><td style="text-align:right">201.5</td><td style="text-align:right">474.6</td></tr><tr><td>FastAFD&#x27;s DeepEP M2N, per-node FFN</td><td style="text-align:right">144.7</td><td style="text-align:right">160.7</td><td style="text-align:right">172.3</td><td style="text-align:right">219.0</td><td style="text-align:right">491.4</td></tr><tr><td>FFN on node 0, mixed-role (opt-in)</td><td style="text-align:right">115.0</td><td style="text-align:right">131.1</td><td style="text-align:right">145.6</td><td style="text-align:right">189.0</td><td style="text-align:right">496.7</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>2 × 4, f = 2</th><th style="text-align:right">T=1</th><th style="text-align:right">8</th><th style="text-align:right">32</th><th style="text-align:right">128</th><th style="text-align:right">512</th></tr></thead><tbody><tr><td>Per-node FFN, hybrid, before</td><td style="text-align:right">94.7</td><td style="text-align:right">106.3</td><td style="text-align:right">112.7</td><td style="text-align:right">138.6</td><td style="text-align:right">286.0</td></tr><tr><td>Per-node FFN, hybrid, without the dispatch-entry barrier</td><td style="text-align:right">88.0</td><td style="text-align:right">97.3</td><td style="text-align:right">104.1</td><td style="text-align:right">130.9</td><td style="text-align:right">277.5</td></tr><tr><td>FastAFD&#x27;s DeepEP M2N, per-node FFN</td><td style="text-align:right">101.4</td><td style="text-align:right">116.0</td><td style="text-align:right">121.5</td><td style="text-align:right">146.8</td><td style="text-align:right">293.5</td></tr><tr><td>FFN node + Attention node, directional</td><td style="text-align:right">75.1</td><td style="text-align:right">86.8</td><td style="text-align:right">94.4</td><td style="text-align:right">120.6</td><td style="text-align:right">271.5</td></tr></tbody></table>
+<p>Every cell is faster than before in both repeats (1.4–8.5%, 3.1 to 9.1 µs) and 3.4–16.1% faster than
+FastAFD&#x27;s DeepEP M2N in the same layout. The FFN-first layouts stay faster except at 512 tokens on three
+nodes (4.4%); what remains of their lead is not protocol, since every Attention GPU of a per-node layout
+forwards and reduces for its rail.</p>
+<p>Correctness on <code>bc3d223c</code>: the GPU suite passes on 2 × 4 with f = 1, 2 and 3 (f = 3 keeps the union, 2f &gt; U) and on 3 × 4 with f = 1 and 2 (BF16 and FP8, capacities 8, 64 and 512, hidden 256 to 4096, top-k 2 and 8), with <code>AFDEP_UNION_HYBRID=1</code>, with the opt-in controls set, with hybrid off and for FastAFD&#x27;s DeepEP M2N; the global-prefix layouts (directional, union, mixed-role on two and three nodes, one domain) pass unchanged; invalid routes stop at the route check. Deferred-put fault injection (patch in the record): one domain&#x27;s
+dispatch and replies lag behind the others&#x27;, and domain 0 waits late after signalling, so domain 1&#x27;s
+next dispatch lands while domain 0 still combines. This tree passes on 2 × 4 and 3 × 4 (f = 1 and 2, BF16 and FP8, capacities 64 and 512), as does a control with the barrier restored. Each negative control fails: combine signals on the tail words hang with exactly a signal plus a dispatch tail in the awaited word; the reply inbox at DeepEP&#x27;s offset loses 55% of the late domain&#x27;s outputs once the bucket reaches the channel count (capacity 512; below it a peer&#x27;s inbox region starts past that offset); combine staging at DeepEP&#x27;s offset corrupts 28–29% of the lagging domain&#x27;s replies.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="31-attentionffn-where-the-time-goes-analysis">3:1 Attention:FFN: where the time goes (analysis)<a href="#31-attentionffn-where-the-time-goes-analysis" class="hash-link" aria-label="Direct link to 3:1 Attention:FFN: where the time goes (analysis)" title="Direct link to 3:1 Attention:FFN: where the time goes (analysis)" translate="no">​</a></h2>
 <p>Three Attention ranks per FFN rank make one FFN serve three sources. One NVLink
 domain, 4 × H200, BF16, hidden 2,048, top-k 8 of 128 experts, 24 transport SMs,
@@ -2467,6 +2846,6 @@ after the gate, so slot order follows issue order. Both passed review and compil
 
 <table><thead><tr><th></th><th style="text-align:right">512</th><th style="text-align:right">1,024</th><th style="text-align:right">2,048</th></tr></thead><tbody><tr><td>Both</td><td style="text-align:right">+1.3 to +1.7%</td><td style="text-align:right">+0.7%</td><td style="text-align:right">−8.6 to −8.7%</td></tr><tr><td>Slot-at-issue only (per-row release)</td><td style="text-align:right">+1.0 to +1.4%</td><td style="text-align:right">−3.0 to −3.1%</td><td style="text-align:right">−11.0 to −11.1%</td></tr><tr><td>Batched release only</td><td style="text-align:right">+0.7 to +1.0%</td><td style="text-align:right">−0.7 to +0.4%</td><td style="text-align:right">−8.7 to −9.6%</td></tr></tbody></table>
 <p>The signaller&#x27;s lag costs more than the per-row fences it saves, and slot order alone
-does not fix the epilogue&#x27;s wait at 512 tokens. Section 16 keeps per-row release.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/afdEP-comm/docs/api"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">API contract</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/sparse-hybrid"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Sparse directional hybrid</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#result" class="table-of-contents__link toc-highlight">Result</a></li><li><a href="#shipped-afd-specific" class="table-of-contents__link toc-highlight">Shipped (AFD-specific)</a><ul><li><a href="#1-entry-barriers" class="table-of-contents__link toc-highlight">1. Entry barriers</a></li><li><a href="#2-directional-count-exchange" class="table-of-contents__link toc-highlight">2. Directional count exchange</a></li><li><a href="#3-directed-exit" class="table-of-contents__link toc-highlight">3. Directed exit</a></li><li><a href="#4-role-sized-registered-buffers" class="table-of-contents__link toc-highlight">4. Role-sized registered buffers</a></li><li><a href="#5-attention-ratios" class="table-of-contents__link toc-highlight">5. Attention ratios</a></li><li><a href="#6-two-nvlink-domains" class="table-of-contents__link toc-highlight">6. Two NVLink domains</a></li><li><a href="#7-directional-hybrid-protocol" class="table-of-contents__link toc-highlight">7. Directional hybrid protocol</a></li><li><a href="#8-route-checks-inside-the-directional-hybrid-dispatch" class="table-of-contents__link toc-highlight">8. Route checks inside the directional hybrid dispatch</a></li><li><a href="#9-attention-domain-dispatch-entry-sync" class="table-of-contents__link toc-highlight">9. Attention-domain dispatch entry sync</a></li><li><a href="#10-single-ffn-reduction" class="table-of-contents__link toc-highlight">10. Single-FFN reduction</a></li><li><a href="#11-staging-outside-remotely-written-inboxes-fix" class="table-of-contents__link toc-highlight">11. Staging outside remotely written inboxes (fix)</a></li><li><a href="#12-direct-gin-path-in-kernel-route-checks" class="table-of-contents__link toc-highlight">12. Direct GIN path: in-kernel route checks</a></li><li><a href="#13-single-ffn-collect-view" class="table-of-contents__link toc-highlight">13. Single-FFN collect view</a></li><li><a href="#14-role-suites-launch-only-what-each-role-uses" class="table-of-contents__link toc-highlight">14. Role suites (launch only what each role uses)</a></li><li><a href="#15-ffn-receive-copy-epilogue-trigger-at-the-counts-one-nvlink-domain" class="table-of-contents__link toc-highlight">15. FFN receive: copy-epilogue trigger at the counts (one NVLink domain)</a></li><li><a href="#16-count-first-dispatch-with-a-streaming-ffn-expansion-opt-in-one-nvlink-domain" class="table-of-contents__link toc-highlight">16. Count-first dispatch with a streaming FFN expansion (opt-in, one NVLink domain)</a></li></ul></li><li><a href="#additions-after-100" class="table-of-contents__link toc-highlight">Additions after 1.0.0</a><ul><li><a href="#17-sparse-directional-hybrid-default-across-nvlink-domains" class="table-of-contents__link toc-highlight">17. Sparse directional hybrid (default across NVLink domains)</a></li><li><a href="#18-mixed-role-directional-hybrid-opt-in-ffn-ranks-sharing-an-nvlink-domain" class="table-of-contents__link toc-highlight">18. Mixed-role directional hybrid (opt-in, FFN ranks sharing an NVLink domain)</a></li><li><a href="#19-fp8-combine-replies-opt-in-across-nvlink-domains" class="table-of-contents__link toc-highlight">19. FP8 combine replies (opt-in, across NVLink domains)</a></li></ul></li><li><a href="#31-attentionffn-where-the-time-goes-analysis" class="table-of-contents__link toc-highlight">3:1 Attention:FFN: where the time goes (analysis)</a></li><li><a href="#parked" class="table-of-contents__link toc-highlight">Parked</a></li><li><a href="#rejected" class="table-of-contents__link toc-highlight">Rejected</a><ul><li><a href="#r1-ffn-combine-sizing-and-unroll-2-generic" class="table-of-contents__link toc-highlight">R1. FFN combine sizing and unroll 2 (generic)</a></li><li><a href="#r2-few-token-split-combine-generic" class="table-of-contents__link toc-highlight">R2. Few-token split combine (generic)</a></li><li><a href="#r3-transport-grid-per-bucket-generic" class="table-of-contents__link toc-highlight">R3. Transport grid per bucket (generic)</a></li><li><a href="#r4-streaming-ffn-expand-no-gain" class="table-of-contents__link toc-highlight">R4. Streaming FFN expand (no gain)</a></li><li><a href="#r5-attention-receive-merge-no-meaningful-gain" class="table-of-contents__link toc-highlight">R5. Attention receive merge (no meaningful gain)</a></li><li><a href="#r6-voided-screen-of-the-per-cta-exit" class="table-of-contents__link toc-highlight">R6. Voided screen of the per-CTA exit</a></li><li><a href="#r7-hybrid-role-sized-buffers-latency-cost" class="table-of-contents__link toc-highlight">R7. Hybrid role-sized buffers (latency cost)</a></li><li><a href="#r8-per-cta-counts-slower" class="table-of-contents__link toc-highlight">R8. Per-CTA counts (slower)</a></li><li><a href="#r9-shared-arrival-word-about-1-inconsistent" class="table-of-contents__link toc-highlight">R9. Shared arrival word (about 1%, inconsistent)</a></li><li><a href="#r10-one-cta-receive-in-one-nvlink-domain-nothing-to-free-latency-moved" class="table-of-contents__link toc-highlight">R10. One-CTA receive in one NVLink domain (nothing to free, latency moved)</a></li><li><a href="#r11-batched-count-first-flag-release-and-slot-at-issue-slower" class="table-of-contents__link toc-highlight">R11. Batched count-first flag release and slot-at-issue (slower)</a></li></ul></li></ul></div></div></div></div></main></div></div></div></div>
+does not fix the epilogue&#x27;s wait at 512 tokens. Section 16 keeps per-row release.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/afdEP-comm/docs/api"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">API contract</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/sparse-hybrid"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Sparse directional hybrid</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#result" class="table-of-contents__link toc-highlight">Result</a></li><li><a href="#shipped-afd-specific" class="table-of-contents__link toc-highlight">Shipped (AFD-specific)</a><ul><li><a href="#1-entry-barriers" class="table-of-contents__link toc-highlight">1. Entry barriers</a></li><li><a href="#2-directional-count-exchange" class="table-of-contents__link toc-highlight">2. Directional count exchange</a></li><li><a href="#3-directed-exit" class="table-of-contents__link toc-highlight">3. Directed exit</a></li><li><a href="#4-role-sized-registered-buffers" class="table-of-contents__link toc-highlight">4. Role-sized registered buffers</a></li><li><a href="#5-attention-ratios" class="table-of-contents__link toc-highlight">5. Attention ratios</a></li><li><a href="#6-two-nvlink-domains" class="table-of-contents__link toc-highlight">6. Two NVLink domains</a></li><li><a href="#7-directional-hybrid-protocol" class="table-of-contents__link toc-highlight">7. Directional hybrid protocol</a></li><li><a href="#8-route-checks-inside-the-directional-hybrid-dispatch" class="table-of-contents__link toc-highlight">8. Route checks inside the directional hybrid dispatch</a></li><li><a href="#9-attention-domain-dispatch-entry-sync" class="table-of-contents__link toc-highlight">9. Attention-domain dispatch entry sync</a></li><li><a href="#10-single-ffn-reduction" class="table-of-contents__link toc-highlight">10. Single-FFN reduction</a></li><li><a href="#11-staging-outside-remotely-written-inboxes-fix" class="table-of-contents__link toc-highlight">11. Staging outside remotely written inboxes (fix)</a></li><li><a href="#12-direct-gin-path-in-kernel-route-checks" class="table-of-contents__link toc-highlight">12. Direct GIN path: in-kernel route checks</a></li><li><a href="#13-single-ffn-collect-view" class="table-of-contents__link toc-highlight">13. Single-FFN collect view</a></li><li><a href="#14-role-suites-launch-only-what-each-role-uses" class="table-of-contents__link toc-highlight">14. Role suites (launch only what each role uses)</a></li><li><a href="#15-ffn-receive-copy-epilogue-trigger-at-the-counts-one-nvlink-domain" class="table-of-contents__link toc-highlight">15. FFN receive: copy-epilogue trigger at the counts (one NVLink domain)</a></li><li><a href="#16-count-first-dispatch-with-a-streaming-ffn-expansion-opt-in-one-nvlink-domain" class="table-of-contents__link toc-highlight">16. Count-first dispatch with a streaming FFN expansion (opt-in, one NVLink domain)</a></li></ul></li><li><a href="#additions-after-100" class="table-of-contents__link toc-highlight">Additions after 1.0.0</a><ul><li><a href="#17-sparse-directional-hybrid-default-across-nvlink-domains" class="table-of-contents__link toc-highlight">17. Sparse directional hybrid (default across NVLink domains)</a></li><li><a href="#18-mixed-role-directional-hybrid-opt-in-ffn-ranks-sharing-an-nvlink-domain" class="table-of-contents__link toc-highlight">18. Mixed-role directional hybrid (opt-in, FFN ranks sharing an NVLink domain)</a></li><li><a href="#19-fp8-combine-replies-opt-in-across-nvlink-domains" class="table-of-contents__link toc-highlight">19. FP8 combine replies (opt-in, across NVLink domains)</a></li><li><a href="#20-per-domain-ffn-prefix-ffn-ranks-on-every-node" class="table-of-contents__link toc-highlight">20. Per-domain FFN prefix (FFN ranks on every node)</a></li></ul></li><li><a href="#31-attentionffn-where-the-time-goes-analysis" class="table-of-contents__link toc-highlight">3:1 Attention:FFN: where the time goes (analysis)</a></li><li><a href="#parked" class="table-of-contents__link toc-highlight">Parked</a></li><li><a href="#rejected" class="table-of-contents__link toc-highlight">Rejected</a><ul><li><a href="#r1-ffn-combine-sizing-and-unroll-2-generic" class="table-of-contents__link toc-highlight">R1. FFN combine sizing and unroll 2 (generic)</a></li><li><a href="#r2-few-token-split-combine-generic" class="table-of-contents__link toc-highlight">R2. Few-token split combine (generic)</a></li><li><a href="#r3-transport-grid-per-bucket-generic" class="table-of-contents__link toc-highlight">R3. Transport grid per bucket (generic)</a></li><li><a href="#r4-streaming-ffn-expand-no-gain" class="table-of-contents__link toc-highlight">R4. Streaming FFN expand (no gain)</a></li><li><a href="#r5-attention-receive-merge-no-meaningful-gain" class="table-of-contents__link toc-highlight">R5. Attention receive merge (no meaningful gain)</a></li><li><a href="#r6-voided-screen-of-the-per-cta-exit" class="table-of-contents__link toc-highlight">R6. Voided screen of the per-CTA exit</a></li><li><a href="#r7-hybrid-role-sized-buffers-latency-cost" class="table-of-contents__link toc-highlight">R7. Hybrid role-sized buffers (latency cost)</a></li><li><a href="#r8-per-cta-counts-slower" class="table-of-contents__link toc-highlight">R8. Per-CTA counts (slower)</a></li><li><a href="#r9-shared-arrival-word-about-1-inconsistent" class="table-of-contents__link toc-highlight">R9. Shared arrival word (about 1%, inconsistent)</a></li><li><a href="#r10-one-cta-receive-in-one-nvlink-domain-nothing-to-free-latency-moved" class="table-of-contents__link toc-highlight">R10. One-CTA receive in one NVLink domain (nothing to free, latency moved)</a></li><li><a href="#r11-batched-count-first-flag-release-and-slot-at-issue-slower" class="table-of-contents__link toc-highlight">R11. Batched count-first flag release and slot-at-issue (slower)</a></li></ul></li></ul></div></div></div></div></main></div></div></div></div>
 </body>
 </html>
