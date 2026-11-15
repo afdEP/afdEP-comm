@@ -259,6 +259,13 @@ public:
                 directed, directed and afdep_per_cta_exit()};
     }
 
+    // afdEP FFN service: (workspace, buffer, NCCL window) addresses for a resident kernel that
+    // receives and replies itself on the role layout of one NVLink domain.
+    std::tuple<int64_t, int64_t, int64_t> get_afd_service_words() const {
+        return {reinterpret_cast<int64_t>(workspace), reinterpret_cast<int64_t>(buffer),
+                reinterpret_cast<int64_t>(nccl_context->window)};
+    }
+
     // ReSharper disable once CppMemberFunctionMayBeStatic
     void barrier(const bool& use_comm_stream, const bool& with_cpu_sync) const {
         const auto compute_stream = at::cuda::getCurrentCUDAStream();
@@ -1681,6 +1688,7 @@ static void register_apis(pybind11::module_& m) {
         .def("get_afd_count_first_config", &ElasticBuffer::get_afd_count_first_config)
         .def("get_afd_sparse_hybrid_config", &ElasticBuffer::get_afd_sparse_hybrid_config)
         .def("get_afd_arrival_words", &ElasticBuffer::get_afd_arrival_words)
+        .def("get_afd_service_words", &ElasticBuffer::get_afd_service_words)
         .def("barrier", &ElasticBuffer::barrier)
         .def("engram_write", &ElasticBuffer::engram_write)
         .def("engram_fetch", &ElasticBuffer::engram_fetch)
