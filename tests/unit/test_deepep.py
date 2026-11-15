@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import replace
 from types import ModuleType, SimpleNamespace
@@ -497,6 +498,50 @@ def test_role_worker_dispatches_empty_and_preserves_receipt(runtime):
     assert runtime.native.combine.call_args.args[0] is rows
 
 
+def test_lanes_give_each_buffer_its_own_stream_and_restore_the_environment(
+    runtime, monkeypatch
+):
+    monkeypatch.delenv(deepep.PER_BUFFER_COMM_STREAM_ENV, raising=False)
+    seen = []
+
+    def construct(*args):
+        seen.append(os.environ.get(deepep.PER_BUFFER_COMM_STREAM_ENV))
+        return runtime.native
+
+    runtime.module.ElasticBuffer.side_effect = construct
+    runtime.native.get_comm_stream.side_effect = object
+    lanes = deepep.Lanes(group=runtime.group, config=config(), lanes=2)
+    assert seen == ["1", "1"]
+    assert deepep.PER_BUFFER_COMM_STREAM_ENV not in os.environ
+    assert len(lanes) == 2 and list(lanes) == [lanes[0], lanes[1]]
+    assert lanes[0] is not lanes[1] and isinstance(lanes[0], deepep.Buffer)
+    lanes.close()
+    assert runtime.native.destroy.call_count == 2
+    # One lane is a lone Buffer on the process-wide stream; a set value survives.
+    monkeypatch.setenv(deepep.PER_BUFFER_COMM_STREAM_ENV, "0")
+    deepep.Lanes(group=runtime.group, config=config(), lanes=1)
+    assert seen[-1] == "0"
+    deepep.Lanes(group=runtime.group, config=config(), lanes=2)
+    assert seen[-1] == "1" and os.environ[deepep.PER_BUFFER_COMM_STREAM_ENV] == "0"
+
+
+def test_lanes_must_agree_and_must_not_share_a_stream(runtime):
+    with pytest.raises(ValueError, match="positive int"):
+        deepep.Lanes(group=runtime.group, config=config(), lanes=0)
+
+    def other_count(values, value, group):
+        values[:] = [value, 3, value, value]
+
+    gather, runtime.dist.all_gather_object = runtime.dist.all_gather_object, other_count
+    with pytest.raises(ValueError, match="same number of lanes"):
+        deepep.Lanes(group=runtime.group, config=config(), lanes=2)
+    runtime.module.ElasticBuffer.assert_not_called()
+    runtime.dist.all_gather_object = gather
+    # The fixture's native runtime returns one stream for every Buffer.
+    with pytest.raises(RuntimeError, match="share a communication stream"):
+        deepep.Lanes(group=runtime.group, config=config(), lanes=2)
+
+
 def test_public_api_is_the_afd_transport_without_loading_torch():
     import afdep
     from afdep import Buffer, Config
@@ -508,7 +553,9 @@ def test_public_api_is_the_afd_transport_without_loading_torch():
     # An integration needs no name from afdep.deepep beyond these.
     assert afdep.DispatchHandle is deepep.DispatchHandle
     assert afdep.ReceiveResult is deepep.ReceiveResult
-    assert {"Buffer", "Config", "DispatchHandle", "ReceiveResult"} <= set(afdep.__all__)
+    assert {"Buffer", "Config", "DispatchHandle", "Lanes", "ReceiveResult"} <= set(
+        afdep.__all__
+    )
 
 
 @pytest.mark.parametrize(
