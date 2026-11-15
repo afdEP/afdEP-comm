@@ -40,7 +40,7 @@ Issues = "https://github.com/afdEP/afdEP-comm/issues"
 include = ["afdep*"]
 
 [tool.setuptools.package-data]
-afdep = ["py.typed", "third_party/deepep_v2/**/*", "third_party/deepep_v2/*"]
+afdep = ["py.typed", "*.cu", "third_party/deepep_v2/**/*", "third_party/deepep_v2/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
