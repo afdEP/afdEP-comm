@@ -72,11 +72,51 @@ pair to be enqueued; device-side protocol and stream ordering protect reuse.
 Independent Buffers do not share ordering. `close()` synchronizes outstanding
 work and frees registered storage; destroy graphs before closing the Buffer.
 
+## Several Buffers on one group
+
+A Buffer holds one exchange at a time. To keep several in flight, as dual-batch
+overlap (DBO) does with one exchange per micro-batch, use `Lanes`:
+
+```python
+lanes = Lanes(group=group, config=config, lanes=2)  # collective, outside capture
+lanes[0].source_dispatch(...)  # each lane is an ordinary Buffer
+lanes.close()
+```
+
+Each lane owns its communicator, registered storage, pending receipt and
+communication stream, so memory grows with the number of lanes. `Lanes` checks
+that every rank asks for the same number and that no two lanes share a stream.
+A caller that constructs the Buffers itself must set
+`AFD_DEEPEP_PER_BUFFER_COMM_STREAM=1` (`afdep.deepep.PER_BUFFER_COMM_STREAM_ENV`)
+on every rank before the first one; `Lanes` sets it only while it constructs and
+then restores it. The guarantees below hold with separate streams.
+
+What an integration can rely on:
+
+- **Calls enqueue and return.** With `read_host_counts=False` every operation
+  enqueues GPU work ordered after the caller's current stream and returns without
+  waiting for peers. Run each lane's calls on whichever caller stream holds its data.
+- **One lane runs in call order.** Dispatch, reply and the next dispatch on one Buffer
+  execute in the order they were called, on every rank.
+- **Lanes are independent.** No operation on one Buffer waits for another Buffer.
+  The caller orders lanes and adds stream dependencies when one lane's output
+  feeds another.
+
+Every rank must still make the same calls on the same lane in the same order.
+With two lanes and layers a, b, ... Attention runs dispatch 0a, dispatch 1a,
+collect 0a, dispatch 0b, collect 1a, dispatch 1b, and FFN runs receive 0a,
+receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
+lanes and choosing this order belong to the caller. The GPU suite runs this order
+eagerly on per-lane streams and as one captured graph (`--lanes 2`).
+
 ## Transport and tuning
 
 afdEP-comm keeps DeepEP's uniform logical expert numbering (Attention ranks own empty
-expert blocks, never legal routing targets) and its collective participation. The
-low-level connector interface is `afdep.deepep.ElasticBuffer`: pass `ffn_ranks=M` for
+expert blocks, never legal routing targets) and its collective participation.
+`Buffer`, `Config`, `ReceiveResult` and `DispatchHandle` (the receipt type), all
+exported from `afdep`, are the integration API; new integrations should use them.
+Underneath is `afdep.deepep.ElasticBuffer`, which takes DeepEP's logical expert
+numbering and the caller's own empty and zero tensors: pass `ffn_ranks=M` for
 afdEP-comm's transport, as `Buffer` does from `Config`; add `ffn_ranks_per_domain=f` for a
 per-domain FFN prefix, whose dispatch takes real expert IDs and maps them to the logical
 numbering itself (the FFN blocks are no longer `[0, F·E)`). Without `ffn_ranks` it runs DeepEP

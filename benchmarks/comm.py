@@ -22,14 +22,13 @@ import torch
 import torch.distributed as dist
 
 from afdep._build import source_digest
+from afdep.deepep import PER_BUFFER_COMM_STREAM_ENV
 
 from .fastafd import BASELINE_KEY, FastAFDBuffer, make
 from .screen import DEFAULT_ARMS
 
 METRIC = "per block: max Attention-rank CUDA-event us per exchange"
 SCOPE = "communication only; init/capture excluded; graph replay included"
-# Buffers coexisting in one process need separate DeepEP communication streams.
-PER_BUFFER_COMM_STREAM_ENV = "AFD_DEEPEP_PER_BUFFER_COMM_STREAM"
 # Arms may set AFDEP_BENCH_COLLECT_VIEW=1 (in "_env") to time source_collect(view=True).
 COLLECT_VIEW = os.environ.get("AFDEP_BENCH_COLLECT_VIEW", "0") == "1"
 
@@ -183,6 +182,7 @@ def main():
         "num_sms": args.num_sms,
     }
     if len(args.arms) > 1:
+        # Buffers coexisting in one process need separate communication streams.
         os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
     arms = [Arm(name, overrides, common) for name, overrides in args.arms.items()]
     # Roles, sources and the Attention-rank metric come from arm 0, so arms share one

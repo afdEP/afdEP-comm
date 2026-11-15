@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Literal
 from ._build import load_deepep, source_digest
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import torch
     import torch.distributed as dist
 
@@ -31,6 +33,11 @@ DEFAULT_COMM_SM_FRACTION = 24 / 132
 HYBRID_DEFAULT_QPS = 129
 DIRECT_DEFAULT_QPS = 17
 INT32_MAX = (1 << 31) - 1
+# Several Buffers in one process each need a communication stream of their own.
+# The native runtime reads this when a Buffer is constructed. ``Lanes`` sets it
+# while it constructs its Buffers; a caller constructing them itself sets it to
+# "1" on every rank before the first one.
+PER_BUFFER_COMM_STREAM_ENV = "AFD_DEEPEP_PER_BUFFER_COMM_STREAM"
 
 
 def per_domain_layout(
@@ -662,6 +669,10 @@ class ElasticBuffer:
 class Buffer:
     """AFD roles over ElasticBuffer (FFN ranks per ``Config``), one in-flight exchange.
 
+    This is the integration API. Hold several exchanges in flight (DBO micro-batches)
+    with ``Lanes``, one Buffer each over the same group; see docs/api.md,
+    "Several Buffers on one group".
+
     Route only real experts [0,num_experts), with -1 for unused choices and no
     duplicate expert per token. Pass prequantized FP8 plus FP32 block128 scales,
     or BF16. Expert rows must be weighted exactly once before worker_reply.
@@ -859,6 +870,56 @@ class Buffer:
     def close(self) -> None:
         self.transport.close()
         self._zero_output = None
+
+
+class Lanes:
+    """Several Buffers on one group, one in-flight exchange each.
+
+    ``lanes[i]`` is an ordinary Buffer with its own communicator, registered
+    storage, pending receipt and communication stream, so an exchange waiting on
+    one lane does not hold up another. Every rank asks for the same number of
+    lanes and uses them in the same order; which exchange runs on which lane is
+    the caller's. Constructor and close are collective, outside capture.
+    """
+
+    def __init__(self, *, group: dist.ProcessGroup, config: Config, lanes: int) -> None:
+        import torch.distributed as dist
+
+        if type(lanes) is not int or lanes < 1:
+            raise ValueError("lanes must be a positive int")
+        counts = [None] * group.size()
+        dist.all_gather_object(counts, lanes, group=group)
+        if any(count != lanes for count in counts):
+            raise ValueError("Every AFD rank must use the same number of lanes")
+        # One lane keeps the process-wide communication stream, as a lone Buffer does.
+        previous = os.environ.get(PER_BUFFER_COMM_STREAM_ENV)
+        if lanes > 1:
+            os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
+        try:
+            self._buffers = tuple(
+                Buffer(group=group, config=config) for _ in range(lanes)
+            )
+        finally:
+            if previous is None:
+                os.environ.pop(PER_BUFFER_COMM_STREAM_ENV, None)
+            else:
+                os.environ[PER_BUFFER_COMM_STREAM_ENV] = previous
+        streams = [buffer.comm_stream for buffer in self._buffers]
+        if any(a == b for i, a in enumerate(streams) for b in streams[i + 1 :]):
+            raise RuntimeError("Lanes must not share a communication stream")
+
+    def __len__(self) -> int:
+        return len(self._buffers)
+
+    def __getitem__(self, lane: int) -> Buffer:
+        return self._buffers[lane]
+
+    def __iter__(self) -> Iterator[Buffer]:
+        return iter(self._buffers)
+
+    def close(self) -> None:
+        for buffer in reversed(self._buffers):
+            buffer.close()
 
 
 # Names used by the earlier (v0) reuse connector. They alias the current implementation.
