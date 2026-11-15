@@ -75,15 +75,21 @@ work and frees registered storage; destroy graphs before closing the Buffer.
 ## Several Buffers on one group
 
 A Buffer holds one exchange at a time. To keep several in flight, as dual-batch
-overlap (DBO) does with one exchange per micro-batch, construct one Buffer per lane
-over the same Gloo group. Every rank constructs the same number, in the same order,
-with the same `Config`; each owns its own communicator, registered storage and
-pending receipt, so memory grows with the number of lanes.
+overlap (DBO) does with one exchange per micro-batch, use `Lanes`:
 
-Set `AFD_DEEPEP_PER_BUFFER_COMM_STREAM=1` (`afdep.deepep.PER_BUFFER_COMM_STREAM_ENV`)
-on every rank before constructing the first Buffer. It is read at construction and
-gives each Buffer its own communication stream. Without it all Buffers in a process
-share one stream; the guarantees below are stated and validated only with it set.
+```python
+lanes = Lanes(group=group, config=config, lanes=2)  # collective, outside capture
+lanes[0].source_dispatch(...)  # each lane is an ordinary Buffer
+lanes.close()
+```
+
+Each lane owns its communicator, registered storage, pending receipt and
+communication stream, so memory grows with the number of lanes. `Lanes` checks
+that every rank asks for the same number and that no two lanes share a stream.
+A caller that constructs the Buffers itself must set
+`AFD_DEEPEP_PER_BUFFER_COMM_STREAM=1` (`afdep.deepep.PER_BUFFER_COMM_STREAM_ENV`)
+on every rank before the first one; `Lanes` sets it only while it constructs and
+then restores it. The guarantees below hold with separate streams.
 
 What an integration can rely on:
 

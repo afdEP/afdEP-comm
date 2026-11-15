@@ -17,9 +17,9 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 
-from afdep import Buffer, Config
+from afdep import Buffer, Config, Lanes
 from afdep._build import source_digest
-from afdep.deepep import PER_BUFFER_COMM_STREAM_ENV, per_domain_layout
+from afdep.deepep import per_domain_layout
 from benchmarks.fastafd import BASELINE, FastAFDBuffer, make
 
 DEFAULT_HIDDEN = 256
@@ -668,9 +668,6 @@ def main() -> None:
         # Transport controls are read on every call.
         if is_ffn == (role == "ffn"):
             os.environ[key] = value
-    if args.lanes > 1:
-        # Read when each Buffer is constructed; every rank sets it alike.
-        os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
     settings = dict(
         capacity_tokens_per_rank=args.capacity,
         hidden_size=args.hidden_size,
@@ -687,9 +684,12 @@ def main() -> None:
         gpu_timeout_s=10 if args.invalid_route else 120,
     )
     # Lane 0 runs the whole single-Buffer suite beside the other live Buffers.
-    buffers = [
-        make(dist.group.WORLD, args.baseline, **settings) for _ in range(args.lanes)
-    ]
+    if args.baseline:
+        buffers = [make(dist.group.WORLD, args.baseline, **settings)]
+    else:
+        buffers = Lanes(
+            group=dist.group.WORLD, config=Config(**settings), lanes=args.lanes
+        )
     buffer = buffers[0]
     config, afdep = buffer.config, args.baseline is None
     # One NVLink domain, or NVLink domains joined by GIN (recorded per rank).
@@ -783,8 +783,10 @@ def main() -> None:
     }
     summaries = [None] * config.world_size
     dist.all_gather_object(summaries, summary)
-    for lane in reversed(buffers):
-        lane.close()
+    if args.baseline:
+        buffer.close()
+    else:
+        buffers.close()
     dist.destroy_process_group()
     if buffer.rank == 0:
         print(
