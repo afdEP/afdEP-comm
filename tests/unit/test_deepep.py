@@ -498,12 +498,17 @@ def test_role_worker_dispatches_empty_and_preserves_receipt(runtime):
 
 
 def test_public_api_is_the_afd_transport_without_loading_torch():
+    import afdep
     from afdep import Buffer, Config
 
     value = Config(2048, 4096, 128, 8, 2, 2)
     assert value.receive_rows(2048) < FastAFDConfig(**vars(value)).receive_rows(2048)
     assert Buffer is deepep.DeepEPBuffer
     assert Config is deepep.DeepEPConfig
+    # An integration needs no name from afdep.deepep beyond these.
+    assert afdep.DispatchHandle is deepep.DispatchHandle
+    assert afdep.ReceiveResult is deepep.ReceiveResult
+    assert {"Buffer", "Config", "DispatchHandle", "ReceiveResult"} <= set(afdep.__all__)
 
 
 @pytest.mark.parametrize(

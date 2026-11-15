@@ -31,6 +31,10 @@ DEFAULT_COMM_SM_FRACTION = 24 / 132
 HYBRID_DEFAULT_QPS = 129
 DIRECT_DEFAULT_QPS = 17
 INT32_MAX = (1 << 31) - 1
+# Several Buffers in one process each need a communication stream of their own.
+# The native runtime reads this when a Buffer is constructed; set it to "1" on
+# every rank before constructing the first one.
+PER_BUFFER_COMM_STREAM_ENV = "AFD_DEEPEP_PER_BUFFER_COMM_STREAM"
 
 
 def per_domain_layout(
@@ -661,6 +665,10 @@ class ElasticBuffer:
 
 class Buffer:
     """AFD roles over ElasticBuffer (FFN ranks per ``Config``), one in-flight exchange.
+
+    This is the integration API. Hold several exchanges in flight (DBO micro-batches)
+    with one Buffer each over the same group, after setting
+    ``PER_BUFFER_COMM_STREAM_ENV``; see docs/api.md, "Several Buffers on one group".
 
     Route only real experts [0,num_experts), with -1 for unused choices and no
     duplicate expert per token. Pass prequantized FP8 plus FP32 block128 scales,
