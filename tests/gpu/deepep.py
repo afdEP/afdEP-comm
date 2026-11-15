@@ -11,13 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import timedelta
 
 import torch
 import torch.distributed as dist
 
-from afdep import Buffer, Config
+from afdep import Buffer, Config, Lanes
 from afdep._build import source_digest
 from afdep.deepep import per_domain_layout
 from benchmarks.fastafd import BASELINE, FastAFDBuffer, make
@@ -27,6 +27,10 @@ EXPERTS_PER_FFN = 4
 DEFAULT_TOP_K = 2
 DEFAULT_FFN_RANKS = 2
 GRAPH_STEPS = 26
+# --lanes: layers each lane runs per step, interleaved with the other lanes.
+LANE_LAYERS = 4
+# Odd, so lanes differ in routes (epoch mod experts) as well as in payload.
+LANE_EPOCH_STRIDE = 37
 DELAY_CYCLES = 2_000_000
 COLLECT_VIEW = False  # --collect-view: Attention reads the single-FFN collect view
 # Per-role environment (--role-env) is limited to controls that only choose a
@@ -174,7 +178,8 @@ class Exchange:
             self.ids.copy_(ids)
             self.weights.copy_(weights)
 
-    def run(self, *, host_counts=False, delay=False, alternate=False, bucket=None):
+    def start(self, *, host_counts=False, delay=False, alternate=False, bucket=None):
+        """Dispatch (Attention) or receive (FFN); pass the result to ``finish``."""
         bucket = bucket or self.config.capacity_tokens_per_rank
         if self.buffer.role == "attention":
             if alternate:
@@ -197,18 +202,30 @@ class Exchange:
                     0,
                     self.config.hidden_size,
                 )
-            return self.buffer.source_collect(view=COLLECT_VIEW).clone(), None
+            return None
         received = self.buffer.worker_receive(
             bucket=bucket, read_host_counts=host_counts
         )
         if self.afdep and not host_counts:
             assert received.recv_x.shape[0] == self.config.receive_rows(bucket)
+        return received
+
+    def finish(self, received, *, host_counts=False, delay=False):
+        """Collect (Attention) or run the test experts and reply (FFN)."""
+        if self.buffer.role == "attention":
+            return self.buffer.source_collect(view=COLLECT_VIEW).clone(), None
         rows = self.experts(received)
         if delay and self.buffer.role_rank == 0:
             torch.cuda._sleep(DELAY_CYCLES)
         snapshot = received.recv_count_psum.clone()
         self.buffer.worker_reply(rows, received.receipt)
         return snapshot, received.recv_counts_host if host_counts else None
+
+    def run(self, *, host_counts=False, delay=False, alternate=False, bucket=None):
+        received = self.start(
+            host_counts=host_counts, delay=delay, alternate=alternate, bucket=bucket
+        )
+        return self.finish(received, host_counts=host_counts, delay=delay)
 
 
 def reply_partials(x, ids, weights, config: Config, scaleup_ranks: int | None):
@@ -493,6 +510,88 @@ def queued_eager_checks(buffer, cases):
     dist.barrier()
 
 
+def interleave(exchanges, streams):
+    """One step in DBO order: every lane starts layer l before any lane finishes it.
+
+    Two lanes run D0 D1 | C0 D0 | C1 D1 | ... | C0 C1 on Attention and the matching
+    receive/reply order on FFN. Each lane's calls go on that lane's stream.
+    """
+    pending = [None] * len(exchanges)
+    layers = [[] for _ in exchanges]
+    for layer in range(LANE_LAYERS + 1):
+        for lane, (exchange, stream) in enumerate(zip(exchanges, streams, strict=True)):
+            with torch.cuda.stream(stream):
+                if layer:
+                    layers[lane].append(exchange.finish(pending[lane]))
+                if layer < LANE_LAYERS:
+                    pending[lane] = exchange.start(alternate=True)
+    return layers
+
+
+def lane_checks(buffers, cases, *, graph):
+    """Several Buffers on one group, one in-flight exchange each (DBO micro-batches).
+
+    Eager steps give every lane a caller stream of its own. The graph captures one
+    interleaved step on a single stream and replays it with new inputs.
+    """
+    rows = buffers[0].config.capacity_tokens_per_rank
+    exchanges = [Exchange(buffer, rows) for buffer in buffers]
+    # Lanes carry different payloads and routes, so a crossed lane fails verify.
+    lane_cases = [
+        [
+            replace(
+                case,
+                name=f"{case.name}_lane{lane}",
+                epoch=case.epoch + LANE_EPOCH_STRIDE * (lane + 1),
+            )
+            for lane in range(len(buffers))
+        ]
+        for case in cases
+    ]
+    capture = torch.cuda.Stream()
+    streams = [capture if graph else torch.cuda.Stream() for _ in buffers]
+
+    def update(step):
+        # Source storage is written on the current stream and read on the lane's.
+        for exchange, case in zip(exchanges, step, strict=True):
+            exchange.update(case)
+        for stream in set(streams):
+            stream.wait_stream(torch.cuda.current_stream())
+
+    snapshots = []
+    if graph:
+        update(lane_cases[0])
+        interleave(exchanges, streams)
+        torch.cuda.synchronize()
+        dist.barrier()
+        cuda_graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(cuda_graph, stream=capture):
+            captured = interleave(exchanges, streams)
+        for step in lane_cases:
+            update(step)
+            with torch.cuda.stream(capture):
+                cuda_graph.replay()
+                snapshots.append(
+                    [
+                        [(value.clone(), counts) for value, counts in lane]
+                        for lane in captured
+                    ]
+                )
+            torch.cuda.synchronize()
+    else:
+        for step in lane_cases:
+            update(step)
+            snapshots.append(interleave(exchanges, streams))
+            torch.cuda.synchronize()
+    for step, lanes in zip(lane_cases, snapshots, strict=True):
+        for buffer, case, layers in zip(buffers, step, lanes, strict=True):
+            for index, snapshot in enumerate(layers):
+                verify(snapshot, case, buffer, rows, sign=-1 if index % 2 == 0 else 1)
+    if graph:
+        cuda_graph.reset()
+    dist.barrier()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--payload", choices=("bf16", "fp8"), default="bf16")
@@ -528,6 +627,12 @@ def main() -> None:
         "--invalid-execution", choices=("eager", "graph"), default="graph"
     )
     parser.add_argument(
+        "--lanes",
+        type=int,
+        default=1,
+        help="Buffers on the one group, also exercised interleaved in DBO order",
+    )
+    parser.add_argument(
         "--collect-view",
         action="store_true",
         help="Attention collects through source_collect(view=True)",
@@ -545,6 +650,8 @@ def main() -> None:
     COLLECT_VIEW = args.collect_view
     if min(args.capacity, args.graph_steps, args.num_sms) < 1:
         parser.error("capacity, graph-steps and num-sms must be positive")
+    if args.lanes < 1 or (args.lanes > 1 and (args.baseline or args.collect_view)):
+        parser.error("lanes>1 requires afdEP-comm without --collect-view")
     if args.invalid_route and (args.baseline or args.capacity < 8):
         parser.error("invalid-route requires afdEP-comm (no baseline) and capacity>=8")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
@@ -565,9 +672,7 @@ def main() -> None:
         # Transport controls are read on every call.
         if is_ffn == (role == "ffn"):
             os.environ[key] = value
-    buffer = make(
-        dist.group.WORLD,
-        args.baseline,
+    settings = dict(
         capacity_tokens_per_rank=args.capacity,
         hidden_size=args.hidden_size,
         num_experts=args.experts_per_ffn * args.ffn_ranks,
@@ -582,6 +687,14 @@ def main() -> None:
         cpu_timeout_s=10 if args.invalid_route else 120,
         gpu_timeout_s=10 if args.invalid_route else 120,
     )
+    # Lane 0 runs the whole single-Buffer suite beside the other live Buffers.
+    if args.baseline:
+        buffers = [make(dist.group.WORLD, args.baseline, **settings)]
+    else:
+        buffers = Lanes(
+            group=dist.group.WORLD, config=Config(**settings), lanes=args.lanes
+        )
+    buffer = buffers[0]
     config, afdep = buffer.config, args.baseline is None
     # One NVLink domain, or NVLink domains joined by GIN (recorded per rank).
     if buffer.physical_domain[0] * buffer.physical_domain[1] != config.world_size:
@@ -633,6 +746,10 @@ def main() -> None:
     queued_eager_checks(buffer, cases)
     for graph in (False, True):
         bucket_checks(buffer, graph)
+    full_cases = [case for case in cases if case.counts == full]
+    if args.lanes > 1:
+        for graph in (False, True):
+            lane_checks(buffers, full_cases, graph=graph)
     summary = {
         "rank": buffer.rank,
         "role": buffer.role,
@@ -663,10 +780,17 @@ def main() -> None:
         "graph_replays": len(cases) * 2 * 2,
         "checked_graph_exchanges": len(cases) * 2 * 2 * args.graph_steps,
         "bucket_cycle_exchanges": {"eager": 5, "graph": 5},
+        "lanes": args.lanes,
+        "interleaved_lane_exchanges": (
+            2 * len(full_cases) * args.lanes * LANE_LAYERS if args.lanes > 1 else 0
+        ),
     }
     summaries = [None] * config.world_size
     dist.all_gather_object(summaries, summary)
-    buffer.close()
+    if args.baseline:
+        buffer.close()
+    else:
+        buffers.close()
     dist.destroy_process_group()
     if buffer.rank == 0:
         print(
