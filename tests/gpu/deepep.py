@@ -120,8 +120,12 @@ def expert_rows(received, worker: int, config: Config):
 
 
 class Exchange:
-    def __init__(self, buffer: Buffer, rows: int):
+    def __init__(self, buffer: Buffer, rows: int, experts=None):
         self.buffer, self.config, self.rows = buffer, buffer.config, rows
+        # FFN ranks: received -> reply rows; the default is the verifiable identity.
+        self.experts = experts or (
+            lambda received: expert_rows(received, buffer.role_rank, buffer.config)
+        )
         # FastAFD's symmetric group gives sources receive bounds; afdEP-comm none.
         self.afdep = not isinstance(buffer, FastAFDBuffer)
         if buffer.role == "attention":
@@ -210,7 +214,7 @@ class Exchange:
         """Collect (Attention) or run the test experts and reply (FFN)."""
         if self.buffer.role == "attention":
             return self.buffer.source_collect(view=COLLECT_VIEW).clone(), None
-        rows = expert_rows(received, self.buffer.role_rank, self.config)
+        rows = self.experts(received)
         if delay and self.buffer.role_rank == 0:
             torch.cuda._sleep(DELAY_CYCLES)
         snapshot = received.recv_count_psum.clone()
