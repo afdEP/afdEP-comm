@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">API contract | afdEP-comm</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://afdep.github.io/afdEP-comm/docs/api"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="API contract | afdEP-comm"><meta data-rh="true" name="description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><meta data-rh="true" property="og:description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><link data-rh="true" rel="canonical" href="https://afdep.github.io/afdEP-comm/docs/api"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="en"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"API contract","item":"https://afdep.github.io/afdEP-comm/docs/api"}]}</script><link rel="stylesheet" href="/afdEP-comm/assets/css/styles.6dee7785.css">
-<script src="/afdEP-comm/assets/js/runtime~main.cee6d688.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/runtime~main.65595559.js" defer="defer"></script>
 <script src="/afdEP-comm/assets/js/main.6603af81.js" defer="defer"></script>
 </head>
 <body>
@@ -94,10 +94,41 @@ until dependent GPU work completes. A completed Python pair allows the next
 pair to be enqueued; device-side protocol and stream ordering protect reuse.
 Independent Buffers do not share ordering. <code>close()</code> synchronizes outstanding
 work and frees registered storage; destroy graphs before closing the Buffer.</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="several-buffers-on-one-group">Several Buffers on one group<a href="#several-buffers-on-one-group" class="hash-link" aria-label="Direct link to Several Buffers on one group" title="Direct link to Several Buffers on one group" translate="no">​</a></h2>
+<p>A Buffer holds one exchange at a time. To keep several in flight, as dual-batch
+overlap (DBO) does with one exchange per micro-batch, use <code>Lanes</code>:</p>
+<div class="language-python codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#FFFFFF;--prism-background-color:#000000"><div class="codeBlockContent_QJqH"><pre tabindex="0" class="prism-code language-python codeBlock_bY9V thin-scrollbar" style="color:#FFFFFF;background-color:#000000"><code class="codeBlockLines_e6Vv"><div class="token-line" style="color:#FFFFFF"><span class="token plain">lanes </span><span class="token operator" style="color:#9E9D9D">=</span><span class="token plain"> Lanes</span><span class="token punctuation" style="color:#9E9D9D">(</span><span class="token plain">group</span><span class="token operator" style="color:#9E9D9D">=</span><span class="token plain">group</span><span class="token punctuation" style="color:#9E9D9D">,</span><span class="token plain"> config</span><span class="token operator" style="color:#9E9D9D">=</span><span class="token plain">config</span><span class="token punctuation" style="color:#9E9D9D">,</span><span class="token plain"> lanes</span><span class="token operator" style="color:#9E9D9D">=</span><span class="token number" style="color:#FCBA00">2</span><span class="token punctuation" style="color:#9E9D9D">)</span><span class="token plain">  </span><span class="token comment" style="color:#9E9D9D;font-style:italic"># collective, outside capture</span><span class="token plain"></span><br></div><div class="token-line" style="color:#FFFFFF"><span class="token plain">lanes</span><span class="token punctuation" style="color:#9E9D9D">[</span><span class="token number" style="color:#FCBA00">0</span><span class="token punctuation" style="color:#9E9D9D">]</span><span class="token punctuation" style="color:#9E9D9D">.</span><span class="token plain">source_dispatch</span><span class="token punctuation" style="color:#9E9D9D">(</span><span class="token punctuation" style="color:#9E9D9D">.</span><span class="token punctuation" style="color:#9E9D9D">.</span><span class="token punctuation" style="color:#9E9D9D">.</span><span class="token punctuation" style="color:#9E9D9D">)</span><span class="token plain">  </span><span class="token comment" style="color:#9E9D9D;font-style:italic"># each lane is an ordinary Buffer</span><span class="token plain"></span><br></div><div class="token-line" style="color:#FFFFFF"><span class="token plain">lanes</span><span class="token punctuation" style="color:#9E9D9D">.</span><span class="token plain">close</span><span class="token punctuation" style="color:#9E9D9D">(</span><span class="token punctuation" style="color:#9E9D9D">)</span><br></div></code></pre></div></div>
+<p>Each lane owns its communicator, registered storage, pending receipt and
+communication stream, so memory grows with the number of lanes. <code>Lanes</code> checks
+that every rank asks for the same number and that no two lanes share a stream.
+A caller that constructs the Buffers itself must set
+<code>AFD_DEEPEP_PER_BUFFER_COMM_STREAM=1</code> (<code>afdep.deepep.PER_BUFFER_COMM_STREAM_ENV</code>)
+on every rank before the first one; <code>Lanes</code> sets it only while it constructs and
+then restores it. The guarantees below hold with separate streams.</p>
+<p>What an integration can rely on:</p>
+<ul>
+<li class=""><strong>Calls enqueue and return.</strong> With <code>read_host_counts=False</code> every operation
+enqueues GPU work ordered after the caller&#x27;s current stream and returns without
+waiting for peers. Run each lane&#x27;s calls on whichever caller stream holds its data.</li>
+<li class=""><strong>One lane runs in call order.</strong> Dispatch, reply and the next dispatch on one Buffer
+execute in the order they were called, on every rank.</li>
+<li class=""><strong>Lanes are independent.</strong> No operation on one Buffer waits for another Buffer.
+The caller orders lanes and adds stream dependencies when one lane&#x27;s output
+feeds another.</li>
+</ul>
+<p>Every rank must still make the same calls on the same lane in the same order.
+With two lanes and layers a, b, ... Attention runs dispatch 0a, dispatch 1a,
+collect 0a, dispatch 0b, collect 1a, dispatch 1b, and FFN runs receive 0a,
+receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
+lanes and choosing this order belong to the caller. The GPU suite runs this order
+eagerly on per-lane streams and as one captured graph (<code>--lanes 2</code>).</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="transport-and-tuning">Transport and tuning<a href="#transport-and-tuning" class="hash-link" aria-label="Direct link to Transport and tuning" title="Direct link to Transport and tuning" translate="no">​</a></h2>
 <p>afdEP-comm keeps DeepEP&#x27;s uniform logical expert numbering (Attention ranks own empty
-expert blocks, never legal routing targets) and its collective participation. The
-low-level connector interface is <code>afdep.deepep.ElasticBuffer</code>: pass <code>ffn_ranks=M</code> for
+expert blocks, never legal routing targets) and its collective participation.
+<code>Buffer</code>, <code>Config</code>, <code>ReceiveResult</code> and <code>DispatchHandle</code> (the receipt type), all
+exported from <code>afdep</code>, are the integration API; new integrations should use them.
+Underneath is <code>afdep.deepep.ElasticBuffer</code>, which takes DeepEP&#x27;s logical expert
+numbering and the caller&#x27;s own empty and zero tensors: pass <code>ffn_ranks=M</code> for
 afdEP-comm&#x27;s transport, as <code>Buffer</code> does from <code>Config</code>; add <code>ffn_ranks_per_domain=f</code> for a
 per-domain FFN prefix, whose dispatch takes real expert IDs and maps them to the logical
 numbering itself (the FFN blocks are no longer <code>[0, F·E)</code>). Without <code>ffn_ranks</code> it runs DeepEP
@@ -135,6 +166,6 @@ default 0 means every bucket, negative values clamp to 0, and it reports 0 when 
 <p>Native compilation is lazy and process-locked. <code>AFDEP_CACHE_DIR</code> controls the
 extension cache; <code>EP_JIT_CACHE_DIR</code> controls DeepEP kernel JIT cache. Both must be
 writable. Use matching NCCL headers/runtime before starting Python; already
-loaded libraries cannot be replaced by changing environment variables later.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/design"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">afdEP-comm: DeepEP V2 specialized for AFD roles</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#roles-and-tensors" class="table-of-contents__link toc-highlight">Roles and tensors</a></li><li><a href="#graphs-streams-and-lifetime" class="table-of-contents__link toc-highlight">Graphs, streams and lifetime</a></li><li><a href="#transport-and-tuning" class="table-of-contents__link toc-highlight">Transport and tuning</a></li></ul></div></div></div></div></main></div></div></div></div>
+loaded libraries cannot be replaced by changing environment variables later.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/design"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">afdEP-comm: DeepEP V2 specialized for AFD roles</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#roles-and-tensors" class="table-of-contents__link toc-highlight">Roles and tensors</a></li><li><a href="#graphs-streams-and-lifetime" class="table-of-contents__link toc-highlight">Graphs, streams and lifetime</a></li><li><a href="#several-buffers-on-one-group" class="table-of-contents__link toc-highlight">Several Buffers on one group</a></li><li><a href="#transport-and-tuning" class="table-of-contents__link toc-highlight">Transport and tuning</a></li></ul></div></div></div></div></main></div></div></div></div>
 </body>
 </html>
