@@ -6,6 +6,9 @@ Scan kernel only (one GPU, fake arrival counters):
 Every client k is one Attention DP group with its own Buffer to the FFN ranks:
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode host
+One resident launch per run (persistent kernel; ``mega`` needs ``--capture``):
+    torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
+        --ffn 2 --clients 1,1 --mode persistent
 Communication-only evidence: no serving claims.
 """
 
@@ -33,6 +36,7 @@ from afdep.service import (
     ROUNDS_PER_LAUNCH,
     FfnService,
     client_row,
+    inbox,
 )
 from tests.gpu.deepep import RECORDED_ENV_PREFIXES, Case, Exchange, verify
 
@@ -41,7 +45,8 @@ SEED = 1234
 KERNEL_TIMEOUT_NS = 2_000_000
 KERNEL_SENDERS, KERNEL_CTAS = 2, 2
 KERNEL_DEVICE_QUOTA = 40  # several ROUNDS_PER_LAUNCH launches per client
-MODES = ("host", "device", "static")
+RESIDENT_MODES = ("persistent", "mega")
+MODES = ("host", "device", "static", *RESIDENT_MODES)
 # Qwen3.5 MoE attention (config.json of the captured checkpoint).
 HEAD_DIM, KV_HEADS, ROTARY_DIM, ROPE_THETA, NORM_EPS = 256, 2, 64, 1e7, 1e-6
 MAX_PROMPT = 1024  # benchmarks/capture.py keeps prompts up to this length
@@ -469,6 +474,19 @@ def serve_layout(args) -> dict:
     torch.cuda.synchronize()
     dist.barrier()
     record = {"rank": rank}
+    resident = args.mode in RESIDENT_MODES
+    if is_ffn and resident:
+        boxes = [inbox(exchange.buffer) for _, exchange in exchanges]
+        graphs = [None] * len(boxes)
+        replies = [torch.empty_like(box.recv_x) for box in boxes]
+        for j, box in enumerate(boxes if args.mode == "persistent" else []):
+            run = exchanges[j][1].experts
+            with torch.cuda.stream(stream):
+                run(box)
+            torch.cuda.synchronize()
+            graphs[j] = torch.cuda.CUDAGraph(keep_graph=True)
+            with torch.cuda.graph(graphs[j], stream=stream):
+                replies[j] = run(box)
     if is_ffn:
         service = None
         if args.mode != "static":
@@ -477,6 +495,17 @@ def serve_layout(args) -> dict:
             service.reset([args.rounds] * len(graphs))
             if args.mode == "device":  # instantiation waits for an idle device
                 service.build_device()
+            if resident:
+                mega = args.mode == "mega"
+                service.build_resident(
+                    [exchange.buffer for _, exchange in exchanges],
+                    boxes,
+                    replies,
+                    gate_up=experts.gate_up if mega else None,
+                    down=experts.down if mega else None,
+                    depth=args.depth,
+                    ctas=args.resident_ctas,
+                )
         dist.barrier()
         start = time.perf_counter()
         if service is None:  # baseline: fixed cyclic order, no readiness scan
@@ -487,7 +516,8 @@ def serve_layout(args) -> dict:
             choice, served = CHOICE_DONE, [args.rounds] * len(graphs)
             order = list(range(len(graphs))) * args.rounds
         else:
-            choice = getattr(service, f"serve_{args.mode}")()
+            mode = "resident" if resident else args.mode
+            choice = getattr(service, f"serve_{mode}")()
             served, order = service.served()
         torch.cuda.synchronize()
         record.update(wall_s=time.perf_counter() - start, choice=choice, served=served)
@@ -598,6 +628,10 @@ def main() -> None:
     parser.add_argument("--dbo", default="1", help="buffers per unit (micro-batches)")
     parser.add_argument("--prefill", type=int, default=-1, help="prefill unit index")
     parser.add_argument("--mode", choices=MODES, default="host")
+    parser.add_argument(
+        "--depth", type=int, default=2, help="receives ahead of a reply"
+    )
+    parser.add_argument("--resident-ctas", type=int, default=16)
     parser.add_argument("--fixed", action="store_true", help="fixed priority scan")
     parser.add_argument("--rounds", type=int, default=50)
     parser.add_argument("--capacity", default="8", help="tokens per rank, per unit")
