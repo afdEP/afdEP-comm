@@ -27,6 +27,7 @@ EP_DISABLE_GIN=1 torchrun --standalone --nproc-per-node=4 \
 ```
 
 Repeat with BF16, both hybrid settings, and larger capacity/hidden/top-k.
+Add `--lanes 2` to also run two Buffers on the group, interleaved as DBO does.
 Destructive route guards run in separate processes: `--invalid-route` accepts
 `dummy`, `duplicate`, `negative`, or `wide`; require the route assertion in the
 log. A timeout or unrelated nonzero exit is a failure, not a successful guard test.

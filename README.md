@@ -338,7 +338,8 @@ comm.close()  # Collective, after all exchanges and graph replays finish.
 ```
 
 Routing, quantization and expert computation belong to the caller. BF16 and
-prequantized FP8 dispatch return BF16 combined outputs. See the
+prequantized FP8 dispatch return BF16 combined outputs. A Buffer holds one
+exchange at a time; use `Lanes` to overlap several (DBO). See the
 [tensor, graph and lifecycle contract](docs/api.md).
 
 ## Support
@@ -367,6 +368,15 @@ H200, with one and two FFN domains, BF16 and FP8, the 1.1.0 tree included
 ([validation](docs/sparse-hybrid.md#validation)). The opt-in cross-node additions are
 validated more narrowly: the mixed-role path passed the suite on 6 × 4 H200 with F = 1 to 3
 ([record](docs/validation-mixed-hybrid.json)).
+
+FFN ranks on every node (`ffn_ranks_per_domain`, [design](docs/design.md) section 20) passed
+the suite on 2 × 4 and 3 × 4 H200 with one and two FFN GPUs per node, BF16 and FP8, and on
+FastAFD's DeepEP M2N in the same layouts ([record](docs/validation-per-domain.json)). These
+layouts run the union hybrid's work with silent FFN rails and Attention rails without the
+dispatch-entry barrier ([record](docs/validation-attention-rails.json)), or with hybrid off one
+RDMA hop per token
+([direct record](docs/validation-direct-per-domain.json)); nodes with different GPU counts are not
+supported.
 
 ## Acknowledgments
 
