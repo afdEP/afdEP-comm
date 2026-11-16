@@ -80,10 +80,9 @@ extern "C" __global__ void afdep_ffn_scan(
     }
 }
 
-enum { GO, FINISHED, PHASE, CLIENT, UNITS, NEXT, RECEIVED, COMPUTED, ISSUED, HALT,
-    RING };
-enum { IDLE, COUNT, COPY, GATE_UP, DOWN, REPLY, EXIT };
-const int RING_SIZE = 16, UNIT_ROWS = 16;
+enum { GO, FINISHED, PHASE, CLIENT, RECEIVED, COMPUTED, ISSUED, HALT, RING };
+enum { IDLE, COUNT, COPY, REPLY, EXIT };
+const int RING_SIZE = 16;
 // WorkspaceLayout: received rank and expert counts.
 const int COUNT_BYTES = 16 + 2 * 3072 * 8;
 
@@ -111,39 +110,25 @@ static __device__ int take(volatile long long* word) {
     return value;
 }
 
-// d += a * b on tensor cores (bf16 pairs in, FP32 out): one 16x8 tile, 16 inputs
-// per call. A lane holds rows `lane / 4` and `lane / 4 + 8`.
-static __device__ void mma(float* d, const unsigned a0, const unsigned a1,
-                           const unsigned a2, const unsigned a3, const unsigned b0,
-                           const unsigned b1) {
-    asm volatile(
-        "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
-        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
-        : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
-        : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
-}
-
 // One launch serves the whole run. CTA 0 thread 0 leads: it picks a client and
-// walks every CTA through count, copy, (gate_up, down), reply. Without expert
-// weights the reply waits for the gate kernel's graph on another stream.
+// walks every CTA through count, copy, reply. The reply waits for the gate
+// kernel's graph on another stream.
 extern "C" __global__ void afdep_ffn_resident(
         const long long* clients, const long long* extra, const int num_clients,
             int* state,
         const int* quota, volatile int* control, int* log, const int log_capacity,
         const long long timeout_ns, const int rotate, volatile int* shared,
             const int depth,
-        const int hidden, const int topk, const int experts, const int alignment,
-        const __nv_bfloat16* gate_up, const __nv_bfloat16* down, const int inter,
-        __nv_bfloat16* scratch, int* work) {
+        const int hidden, const int topk, const int experts, const int alignment) {
     const int tid = threadIdx.x, lane = tid & 31, threads = blockDim.x, ctas =
         gridDim.x;
     const int global = blockIdx.x * threads + tid, warp = global / 32, warps = ctas *
         threads / 32;
-    const bool leader = global == 0, fused = gate_up != nullptr;
+    const bool leader = global == 0;
     const int hidden_bytes = hidden * 2, meta_at = (hidden_bytes + 31) / 32 * 32;
     const int token_bytes = meta_at + (topk * 12 + 4 + 31) / 32 * 32;
     const int reply_bytes = meta_at + (topk * 8 + 31) / 32 * 32, meta_words = 2 + topk;
-    int phase = IDLE, client = 0, received = 0, replied = 0, items = 0;  // leader only
+    int phase = IDLE, client = 0, received = 0, replied = 0;  // leader only
     for (int step = 1;; ++ step) {
         if (leader) {
             while (shared[FINISHED] != ctas) {}
@@ -165,27 +150,6 @@ extern "C" __global__ void afdep_ffn_resident(
                 __threadfence();
                 shared[RECEIVED] = ++ received;
                 phase = IDLE;
-                if (fused) {
-                    items = 0;
-                    for (int e = 0; e < experts; ++ e) {
-                        const int end = e ? c.psum[e - 1] : 0;
-                        const int first = (end + alignment - 1) / alignment * alignment;
-                        for (int r = first; r < c.psum[e]; r += UNIT_ROWS, ++ items) {
-                            work[3 * items] = r;
-                            work[3 * items + 1] = e;
-                            work[3 * items + 2] = min(UNIT_ROWS, c.psum[e] - r);
-                        }
-                    }
-                    shared[UNITS] = items * (inter / 16);
-                    shared[NEXT] = 0;
-                    phase = GATE_UP;
-                }
-            } else if (phase == GATE_UP) {
-                shared[UNITS] = items * (hidden / 32);
-                shared[NEXT] = 0;
-                phase = DOWN;
-            } else if (phase == DOWN) {
-                phase = REPLY;
             } else if (phase == REPLY) {
                 for (int s = c.ffn; s < c.ranks; ++ s)
                     atomicAdd(reinterpret_cast<unsigned long long*>(
@@ -197,7 +161,7 @@ extern "C" __global__ void afdep_ffn_resident(
             }
             const long long start = timer();
             for (int end = 0; phase == IDLE;) {
-                if (not fused and shared[COMPUTED] != replied) {
+                if (shared[COMPUTED] != replied) {
                     phase = REPLY;
                     client = shared[RING + replied % RING_SIZE];
                     break;
@@ -308,82 +272,6 @@ extern "C" __global__ void afdep_ffn_resident(
                     for (int n = 0; n < 8; ++ n)
                         h[n] = __float2bfloat16(sum[n]);
                     out[j] = v;
-                }
-            }
-        } else {
-            // SwiGLU on tensor cores: a warp takes up to UNIT_ROWS rows of one expert
-            // and 32 output columns (16 gate with their 16 up columns), so an
-            // expert's weights are read once. Weights are packed per tile: [expert]
-            // [8 columns][16 inputs] as 32 lane words, so a call reads 256 bytes in a row.
-            const bool up = p == GATE_UP;
-            const int K = up ? hidden : inter, blocks = up ? inter / 16 : hidden / 32;
-            const int units = shared[UNITS], group = lane >> 2, pair = lane & 3;
-            const __nv_bfloat16* from = up ? c.x : scratch;
-            for (;;) {
-                int unit = 0;
-                if (lane == 0)
-                    unit = atomicAdd(const_cast<int*>(shared) + NEXT, 1);
-                unit = __shfl_sync(0xffffffff, unit, 0);
-                if (unit >= units)
-                    break;
-                const int* item = work + 3 * (unit / blocks);
-                const int n = item[2], col = unit % blocks * (up ? 16 : 32);
-                const unsigned* a[UNIT_ROWS / 8];
-                #pragma unroll
-                for (int h = 0; h < UNIT_ROWS / 8; ++ h) {
-                    // Rows past the item read row 0; their results are dropped.
-                    const int r = h * 8 + group < n ? h * 8 + group : 0;
-                    a[h] = reinterpret_cast<const unsigned*>(
-                        from + (item[0] + r) * static_cast<long long>(K)) + pair;
-                }
-                const unsigned long long* b[4];
-                #pragma unroll
-                for (int t = 0; t < 4; ++ t) {
-                    const int column = up ? (t / 2) * inter + col + t % 2 * 8 :
-                        col + t * 8;
-                    b[t] = reinterpret_cast<const unsigned long long*>(
-                        (up ? gate_up : down) +
-                        (static_cast<long long>(item[1]) * (up ? 2 * inter : hidden) +
-                            column) * K) + lane;
-                }
-                float d[UNIT_ROWS / 16][4][4] = {};
-                for (int k = 0; k < K / 2; k += 8) {
-                    #pragma unroll
-                    for (int t = 0; t < 4; ++ t) {
-                        const unsigned long long w = b[t][k * 4];
-                        const unsigned b0 = w, b1 = w >> 32;
-                        #pragma unroll
-                        for (int h = 0; h < UNIT_ROWS / 16; ++ h)
-                            if (h * 16 < n)
-                                mma(d[h][t], a[2 * h][k], a[2 * h + 1][k],
-                                    a[2 * h][k + 4], a[2 * h + 1][k + 4], b0, b1);
-                    }
-                }
-                #pragma unroll
-                for (int i = 0; i < UNIT_ROWS / 8 * 2; ++ i) {
-                    const int r = i / 2 * 8 + group, h = i / 4, q = i / 2 % 2 * 2 + i % 2;
-                    if (r >= n)
-                        continue;
-                    const long long row = item[0] + r;
-                    if (up) {
-                        #pragma unroll
-                        for (int t = 0; t < 2; ++ t) {
-                            const float gate =
-                                __bfloat162float(__float2bfloat16(d[h][t][q]));
-                            const float act = gate / (1 + expf(-gate));
-                            scratch[row * inter + col + t * 8 + pair * 2 + i % 2] =
-                                __float2bfloat16(
-                                    __bfloat162float(__float2bfloat16(act)) *
-                                    __bfloat162float(__float2bfloat16(d[h][t + 2][q])));
-                        }
-                    } else {
-                        #pragma unroll
-                        for (int t = 0; t < 4; ++ t)
-                            c.reply[row * hidden + col + t * 8 + pair * 2 + i % 2] =
-                                __float2bfloat16(
-                                    __bfloat162float(__float2bfloat16(d[h][t][q])) *
-                                    c.weights[row]);
-                    }
                 }
             }
         }

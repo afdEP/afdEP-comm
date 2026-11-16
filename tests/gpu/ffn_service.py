@@ -6,7 +6,7 @@ Scan kernel only (one GPU, fake arrival counters):
 Every client k is one Attention DP group with its own Buffer to the FFN ranks:
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode host
-One resident launch per run (persistent kernel; ``fused`` needs ``--capture``):
+One resident launch per run (persistent kernel):
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode persistent
 Communication-only evidence: no serving claims.
@@ -45,8 +45,7 @@ SEED = 1234
 KERNEL_TIMEOUT_NS = 2_000_000
 KERNEL_SENDERS, KERNEL_CTAS = 2, 2
 KERNEL_DEVICE_QUOTA = 40  # several ROUNDS_PER_LAUNCH launches per client
-RESIDENT_MODES = ("persistent", "fused")
-MODES = ("host", "device", "static", *RESIDENT_MODES)
+MODES = ("host", "device", "static", "persistent")
 # Qwen3.5 MoE attention (config.json of the captured checkpoint).
 HEAD_DIM, KV_HEADS, ROTARY_DIM, ROPE_THETA, NORM_EPS = 256, 2, 64, 1e7, 1e-6
 MAX_PROMPT = 1024  # benchmarks/capture.py keeps prompts up to this length
@@ -474,12 +473,12 @@ def serve_layout(args) -> dict:
     torch.cuda.synchronize()
     dist.barrier()
     record = {"rank": rank}
-    resident = args.mode in RESIDENT_MODES
+    resident = args.mode == "persistent"
     if is_ffn and resident:
         boxes = [inbox(exchange.buffer) for _, exchange in exchanges]
         graphs = [None] * len(boxes)
         replies = [torch.empty_like(box.recv_x) for box in boxes]
-        for j, box in enumerate(boxes if args.mode == "persistent" else []):
+        for j, box in enumerate(boxes):
             run = exchanges[j][1].experts
             with torch.cuda.stream(stream):
                 run(box)
@@ -496,13 +495,10 @@ def serve_layout(args) -> dict:
             if args.mode == "device":  # instantiation waits for an idle device
                 service.build_device()
             if resident:
-                fused = args.mode == "fused"
                 service.build_resident(
                     [exchange.buffer for _, exchange in exchanges],
                     boxes,
                     replies,
-                    gate_up=experts.gate_up if fused else None,
-                    down=experts.down if fused else None,
                     depth=args.depth,
                     ctas=args.resident_ctas,
                 )
