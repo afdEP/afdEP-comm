@@ -12,8 +12,8 @@ iteration inside one CUDA graph, each scan beside the previous round's
 switch(client graph), for up to ROUNDS_PER_LAUNCH rounds per CPU launch.
 
 Resident mode launches one kernel for the whole run. It picks clients the same
-way and does the receive and the reply itself; the experts run either as CUDA
-graphs on a second stream (persistent kernel) or inside it (fused kernel).
+way and does the receive and the reply itself; the experts run as CUDA
+graphs on a second stream (persistent kernel).
 """
 
 from __future__ import annotations
@@ -43,12 +43,8 @@ DEFAULT_TIMEOUT_NS = 30_000_000_000
 LOG_CAPACITY = 1 << 20
 SCAN_THREADS = 32
 RESIDENT_THREADS = 256
-# Lets four resident CTAs share one SM (65536 registers).
-MAX_REGISTERS = 64
-SM_REGISTERS = 65536
 EXTRA_WORDS = 12  # afdep_ffn_resident's Client fields after the client row
-SHARED_FINISHED, SHARED_RING, RING_SIZE = 1, 10, 16  # afdep_ffn_resident's words
-UNIT_ROWS = 16  # rows per fused kernel GEMM unit
+SHARED_FINISHED, SHARED_RING, RING_SIZE = 1, 8, 16  # afdep_ffn_resident's words
 # ncclWindow_vidmem as int32 words: LSA rank and the peer stride in 4 GiB units.
 WINDOW_WORDS, WINDOW_LSA_RANK, WINDOW_STRIDE = 8, 4, 6
 
@@ -66,9 +62,7 @@ def _ok(result):
 def _load_scan(name: bytes = b"afdep_ffn_scan"):
     major, minor = torch.cuda.get_device_capability()
     arch = f"sm_{major}{minor}"
-    key = hashlib.sha256(
-        (SCAN_SOURCE + arch + f"r{MAX_REGISTERS}").encode()
-    ).hexdigest()[:16]
+    key = hashlib.sha256((SCAN_SOURCE + arch).encode()).hexdigest()[:16]
     cache = Path(os.environ.get("AFDEP_CACHE_DIR", Path.home() / ".cache" / "afdep"))
     cubin = cache / f"ffn_scan_{key}.cubin"
     if not cubin.exists():
@@ -82,7 +76,6 @@ def _load_scan(name: bytes = b"afdep_ffn_scan"):
                     str(nvcc),
                     "-cubin",
                     f"-arch={arch}",
-                    f"-maxrregcount={MAX_REGISTERS}",
                     "-o",
                     f"{work}/scan.cubin",
                     str(source),
@@ -93,14 +86,6 @@ def _load_scan(name: bytes = b"afdep_ffn_scan"):
     _ok(driver.cuInit(0))
     module = _ok(driver.cuModuleLoad(str(cubin).encode()))
     return module, _ok(driver.cuModuleGetFunction(module, name))
-
-
-def _tiles(weight: torch.Tensor) -> torch.Tensor:
-    """[expert, input, column] in tensor-core order: per 8 columns and 16 inputs,
-    32 lane words of inputs (2p, 2p+1, 2p+8, 2p+9) for column ``lane // 4``."""
-    e, k, c = weight.shape
-    packed = weight.mT.reshape(e, c // 8, 8, k // 16, 2, 4, 2)
-    return packed.permute(0, 1, 3, 2, 5, 4, 6).contiguous()
 
 
 def client_row(buffer: Buffer) -> list[int]:
@@ -350,35 +335,22 @@ class FfnService:
         boxes: list[SimpleNamespace],
         replies: list[torch.Tensor],
         *,
-        gate_up: torch.Tensor | None = None,
-        down: torch.Tensor | None = None,
         depth: int = 2,
         ctas: int = 16,
     ) -> None:
         """One resident launch per run over ``boxes[k] = inbox(buffers[k])``.
 
-        Persistent kernel: ``graphs[k]`` computes ``replies[k]`` (weighted expert
-        rows) from ``boxes[k]`` and runs on ``scan_stream``; up to ``depth``
-        clients are received ahead of their reply. Fused kernel: with ``gate_up``
-        and ``down`` as [expert, input, column] the kernel computes ``replies[k]``
-        itself, on every CTA, so ``ctas`` must all be resident at once.
+        ``graphs[k]`` computes ``replies[k]`` (weighted expert rows) from
+        ``boxes[k]`` and runs on ``scan_stream``; up to ``depth`` clients are
+        received ahead of their reply.
         """
         c = buffers[0].config
         shape = (c.hidden_size, c.top_k, c.experts_per_rank, c.expert_alignment)
-        fused = gate_up is not None
-        inter = down.shape[1] if fused else 0
         # Ceiling: the vendored single-FFN-rank kernels use another wire format.
         if c.ffn_ranks < 2 or not 0 < depth <= RING_SIZE:
             raise ValueError("resident mode needs several FFN ranks and a ring depth")
         if ctas * RESIDENT_THREADS < c.experts_per_rank + c.attention_ranks:
             raise ValueError("resident grid is smaller than the count words")
-        if fused and (inter % 16 or c.hidden_size % 32):
-            raise ValueError("fused kernel columns must divide into warps")
-        sms = torch.cuda.get_device_properties(
-            torch.cuda.current_device()
-        ).multi_processor_count
-        if ctas * RESIDENT_THREADS * MAX_REGISTERS > sms * SM_REGISTERS:
-            raise ValueError("resident CTAs must all fit on the device at once")
         extra = []
         header = torch.zeros(WINDOW_WORDS, dtype=torch.int32)
         for buffer, box, reply in zip(buffers, boxes, replies, strict=True):
@@ -411,21 +383,10 @@ class FfnService:
                 ]
             )
         assert len(extra[0]) == EXTRA_WORDS
-        rows = max(box.rows for box in boxes)
-        if fused:
-            gate_up, down = _tiles(gate_up), _tiles(down)
-        self._keep = (boxes, replies, gate_up, down)
+        self._keep = (boxes, replies)
         self.extra = torch.tensor(extra, dtype=torch.int64, device="cuda")
         self.shared = torch.zeros(
             SHARED_RING + RING_SIZE, dtype=torch.int32, device="cuda"
-        )
-        self.scratch = torch.empty(
-            rows if fused else 0, inter, dtype=torch.bfloat16, device="cuda"
-        )
-        self.work = torch.zeros(
-            3 * (rows // UNIT_ROWS + c.experts_per_rank),
-            dtype=torch.int32,
-            device="cuda",
         )
         self._resident = _ok(
             driver.cuModuleGetFunction(self._module, b"afdep_ffn_resident")
@@ -445,16 +406,9 @@ class FfnService:
             self.shared.data_ptr(),
             depth,
             *shape,
-            gate_up.data_ptr() if fused else 0,
-            down.data_ptr() if fused else 0,
-            inter,
-            self.scratch.data_ptr(),
-            self.work.data_ptr(),
         )
-        types = (p, p, i, p, p, p, p, i, ll, i, p, i, i, i, i, i, p, p, i, p, p)
+        types = (p, p, i, p, p, p, p, i, ll, i, p, i, i, i, i, i)
         self._resident_launch = ((values, types), ctas)
-        if fused:
-            return
         graph = _ok(runtime.cudaGraphCreate(0))
         loop = _ok(
             runtime.cudaGraphConditionalHandleCreate(
@@ -490,7 +444,7 @@ class FfnService:
         self._exec = _ok(runtime.cudaGraphInstantiate(graph, 0))
 
     def serve_resident(self) -> int:
-        """Run the resident kernel (and the experts graph loop) until no choice."""
+        """Run the resident kernel and the experts graph loop until no choice."""
         args, ctas = self._resident_launch
         self.shared.zero_()
         self.shared[SHARED_FINISHED] = ctas
@@ -502,9 +456,8 @@ class FfnService:
             ctas,
             RESIDENT_THREADS,
         )
-        if self._exec is not None:
-            _ok(runtime.cudaGraphLaunch(self._exec, self.scan_stream.cuda_stream))
-            self.scan_stream.synchronize()
+        _ok(runtime.cudaGraphLaunch(self._exec, self.scan_stream.cuda_stream))
+        self.scan_stream.synchronize()
         self.stream.synchronize()
         return int(self.control[CONTROL_CHOICE])
 
