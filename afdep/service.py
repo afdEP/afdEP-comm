@@ -10,10 +10,6 @@ on its own stream while the previous exchange runs and queues the chosen client'
 captured exchange behind it. Device mode runs ROUNDS_PER_BODY rounds per WHILE
 iteration inside one CUDA graph, each scan beside the previous round's
 switch(client graph), for up to ROUNDS_PER_LAUNCH rounds per CPU launch.
-
-Resident mode launches one kernel for the whole run. It picks clients the same
-way and does the receive and the reply itself; the experts run as CUDA
-graphs on a second stream (persistent kernel).
 """
 
 from __future__ import annotations
@@ -24,7 +20,6 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import torch
 from cuda.bindings import driver, runtime
@@ -42,11 +37,6 @@ CONTROL_STOP, CONTROL_CHOICE = 0, 1
 DEFAULT_TIMEOUT_NS = 30_000_000_000
 LOG_CAPACITY = 1 << 20
 SCAN_THREADS = 32
-RESIDENT_THREADS = 256
-EXTRA_WORDS = 12  # afdep_ffn_resident's Client fields after the client row
-SHARED_FINISHED, SHARED_RING, RING_SIZE = 1, 8, 16  # afdep_ffn_resident's words
-# ncclWindow_vidmem as int32 words: LSA rank and the peer stride in 4 GiB units.
-WINDOW_WORDS, WINDOW_LSA_RANK, WINDOW_STRIDE = 8, 4, 6
 
 SCAN_SOURCE = Path(__file__).with_suffix(".cu").read_text()
 
@@ -59,7 +49,7 @@ def _ok(result):
     return values[0] if len(values) == 1 else values
 
 
-def _load_scan(name: bytes = b"afdep_ffn_scan"):
+def _load_scan():
     major, minor = torch.cuda.get_device_capability()
     arch = f"sm_{major}{minor}"
     key = hashlib.sha256((SCAN_SOURCE + arch).encode()).hexdigest()[:16]
@@ -85,7 +75,7 @@ def _load_scan(name: bytes = b"afdep_ffn_scan"):
             os.replace(f"{work}/scan.cubin", cubin)
     _ok(driver.cuInit(0))
     module = _ok(driver.cuModuleLoad(str(cubin).encode()))
-    return module, _ok(driver.cuModuleGetFunction(module, name))
+    return module, _ok(driver.cuModuleGetFunction(module, b"afdep_ffn_scan"))
 
 
 def client_row(buffer: Buffer) -> list[int]:
@@ -98,28 +88,6 @@ def client_row(buffer: Buffer) -> list[int]:
     c = buffer.config
     ctas = buffer.transport._resolved_num_sms if per_cta else 1
     return [base, c.world_size, c.ffn_ranks, c.attention_ranks, ctas]
-
-
-def inbox(buffer: Buffer) -> SimpleNamespace:
-    """Static receive tensors of one client for the resident kernel."""
-    c = buffer.config
-    bucket = c.capacity_tokens_per_rank
-    rows = c.receive_rows(bucket)
-
-    def zeros(*shape, dtype=torch.int32):
-        return torch.zeros(*shape, dtype=dtype, device="cuda")
-
-    psum = zeros(c.experts_per_rank + 1)
-    return SimpleNamespace(
-        recv_x=zeros(rows, c.hidden_size, dtype=torch.bfloat16),
-        recv_scale=None,
-        recv_topk_weights=zeros(rows, dtype=torch.float32),
-        recv_count_psum=psum[:-1],
-        psum=psum,
-        meta=zeros(c.attention_ranks * bucket * (2 + c.top_k)),
-        ranks=zeros(c.world_size),
-        rows=rows,
-    )
 
 
 class FfnService:
@@ -205,16 +173,14 @@ class FfnService:
         )
         return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull)
 
-    def _launch_scan(
-        self, stream: int, args, function=None, grid=1, threads=SCAN_THREADS
-    ) -> None:
+    def _launch_scan(self, stream: int, args) -> None:
         _ok(
             driver.cuLaunchKernel(
-                function or self._function,
-                grid,
+                self._function,
                 1,
                 1,
-                threads,
+                1,
+                SCAN_THREADS,
                 1,
                 1,
                 0,
@@ -280,7 +246,7 @@ class FfnService:
         self._exec = _ok(runtime.cudaGraphInstantiate(graph, 0))
         _ok(runtime.cudaGraphUpload(self._exec, self.stream.cuda_stream))
 
-    def _capture_scan(self, graph, dependencies, args, function=None):
+    def _capture_scan(self, graph, dependencies, args):
         """Add one scan kernel node to ``graph`` after ``dependencies``."""
         before = {int(n) for n in self._nodes(graph)}
         capture = torch.cuda.Stream()
@@ -294,7 +260,7 @@ class FfnService:
                 runtime.cudaStreamCaptureMode.cudaStreamCaptureModeRelaxed,
             )
         )
-        self._launch_scan(capture.cuda_stream, args, function)
+        self._launch_scan(capture.cuda_stream, args)
         _ok(runtime.cudaStreamEndCapture(capture.cuda_stream))
         (node,) = [n for n in self._nodes(graph) if int(n) not in before]
         return node
@@ -328,138 +294,6 @@ class FfnService:
             self.stream.synchronize()
             if (choice := int(self.control[CONTROL_CHOICE])) < 0:
                 return choice
-
-    def build_resident(
-        self,
-        buffers: list[Buffer],
-        boxes: list[SimpleNamespace],
-        replies: list[torch.Tensor],
-        *,
-        depth: int = 2,
-        ctas: int = 16,
-    ) -> None:
-        """One resident launch per run over ``boxes[k] = inbox(buffers[k])``.
-
-        ``graphs[k]`` computes ``replies[k]`` (weighted expert rows) from
-        ``boxes[k]`` and runs on ``scan_stream``; up to ``depth`` clients are
-        received ahead of their reply.
-        """
-        c = buffers[0].config
-        shape = (c.hidden_size, c.top_k, c.experts_per_rank, c.expert_alignment)
-        # Ceiling: the vendored single-FFN-rank kernels use another wire format.
-        if c.ffn_ranks < 2 or not 0 < depth <= RING_SIZE:
-            raise ValueError("resident mode needs several FFN ranks and a ring depth")
-        if ctas * RESIDENT_THREADS < c.experts_per_rank + c.attention_ranks:
-            raise ValueError("resident grid is smaller than the count words")
-        extra = []
-        header = torch.zeros(WINDOW_WORDS, dtype=torch.int32)
-        for buffer, box, reply in zip(buffers, boxes, replies, strict=True):
-            k = buffer.config
-            if shape != (
-                k.hidden_size,
-                k.top_k,
-                k.experts_per_rank,
-                k.expert_alignment,
-            ):
-                raise ValueError("resident clients must share the expert layout")
-            workspace, data, window = buffer.transport._runtime.get_afd_service_words()
-            _ok(driver.cuMemcpyDtoH(header.data_ptr(), window, header.numel() * 4))
-            if header[WINDOW_LSA_RANK] != buffer.rank:
-                raise ValueError("unexpected NCCL window layout")
-            extra.append(
-                [
-                    workspace,
-                    data,
-                    (int(header[WINDOW_STRIDE]) & 0xFFFFFFFF) << 32,
-                    buffer.role_rank,
-                    k.capacity_tokens_per_rank,
-                    box.recv_x.data_ptr(),
-                    box.recv_topk_weights.data_ptr(),
-                    box.psum.data_ptr(),
-                    box.meta.data_ptr(),
-                    reply.data_ptr(),
-                    box.ranks.data_ptr(),
-                    box.rows,
-                ]
-            )
-        assert len(extra[0]) == EXTRA_WORDS
-        self._keep = (boxes, replies)
-        self.extra = torch.tensor(extra, dtype=torch.int64, device="cuda")
-        self.shared = torch.zeros(
-            SHARED_RING + RING_SIZE, dtype=torch.int32, device="cuda"
-        )
-        self._resident = _ok(
-            driver.cuModuleGetFunction(self._module, b"afdep_ffn_resident")
-        )
-        p, i, ll = ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong
-        values = (
-            self.clients.data_ptr(),
-            self.extra.data_ptr(),
-            len(self.graphs),
-            self.state.data_ptr(),
-            self.quota.data_ptr(),
-            self.control.data_ptr(),
-            self.log.data_ptr(),
-            LOG_CAPACITY,
-            self.timeout_ns,
-            int(self.rotate),
-            self.shared.data_ptr(),
-            depth,
-            *shape,
-        )
-        types = (p, p, i, p, p, p, p, i, ll, i, p, i, i, i, i, i)
-        self._resident_launch = ((values, types), ctas)
-        graph = _ok(runtime.cudaGraphCreate(0))
-        loop = _ok(
-            runtime.cudaGraphConditionalHandleCreate(
-                graph,
-                1,
-                runtime.cudaGraphConditionalHandleFlags.cudaGraphCondAssignDefault,
-            )
-        )
-        body = self._conditional(graph, [], loop, "cudaGraphCondTypeWhile", 1)[0]
-        branch = _ok(
-            runtime.cudaGraphConditionalHandleCreate(body, len(self.graphs), 0)
-        )
-        ull = ctypes.c_ulonglong
-        gate = self._capture_scan(
-            body,
-            [],
-            (
-                (self.shared.data_ptr(), len(self.graphs), int(loop), int(branch)),
-                (p, i, ull, ull),
-            ),
-            _ok(driver.cuModuleGetFunction(self._module, b"afdep_ffn_gate")),
-        )
-        bodies = self._conditional(
-            body, [gate], branch, "cudaGraphCondTypeSwitch", len(self.graphs)
-        )
-        for child, client in zip(bodies, self.graphs, strict=True):
-            _ok(
-                runtime.cudaGraphAddChildGraphNode(
-                    child, None, 0, runtime.cudaGraph_t(client.raw_cuda_graph())
-                )
-            )
-        self._graph = graph
-        self._exec = _ok(runtime.cudaGraphInstantiate(graph, 0))
-
-    def serve_resident(self) -> int:
-        """Run the resident kernel and the experts graph loop until no choice."""
-        args, ctas = self._resident_launch
-        self.shared.zero_()
-        self.shared[SHARED_FINISHED] = ctas
-        torch.cuda.synchronize()
-        self._launch_scan(
-            self.stream.cuda_stream,
-            args,
-            self._resident,
-            ctas,
-            RESIDENT_THREADS,
-        )
-        _ok(runtime.cudaGraphLaunch(self._exec, self.scan_stream.cuda_stream))
-        self.scan_stream.synchronize()
-        self.stream.synchronize()
-        return int(self.control[CONTROL_CHOICE])
 
     def served(self) -> tuple[list[int], list[int]]:
         """(exchanges served per client, service order) since the last reset."""
