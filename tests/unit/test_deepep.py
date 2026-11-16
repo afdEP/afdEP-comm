@@ -542,6 +542,42 @@ def test_lanes_must_agree_and_must_not_share_a_stream(runtime):
         deepep.Lanes(group=runtime.group, config=config(), lanes=2)
 
 
+def test_lanes_close_the_buffers_built_before_a_failure(runtime, monkeypatch):
+    monkeypatch.delenv(deepep.PER_BUFFER_COMM_STREAM_ENV, raising=False)
+    built = []
+
+    def construct(*args):
+        if len(built) == 2:
+            raise RuntimeError("out of memory registering lane 2")
+        native = Mock()
+        native.get_comm_stream.side_effect = object
+        native.get_logical_domain_size.return_value = (1, 4)
+        native.get_afd_count_first_config.return_value = (0, "full")
+        native.get_afd_sparse_hybrid_config.return_value = (
+            0,
+            False,
+            False,
+            0,
+            False,
+            0,
+            0,
+        )
+        built.append(native)
+        return native
+
+    runtime.module.ElasticBuffer.side_effect = construct
+    with pytest.raises(RuntimeError, match="out of memory"):
+        deepep.Lanes(group=runtime.group, config=config(), lanes=3)
+    assert [native.destroy.call_count for native in built] == [1, 1]
+    assert deepep.PER_BUFFER_COMM_STREAM_ENV not in os.environ
+    # A shared stream also closes every lane before raising.
+    runtime.module.ElasticBuffer.side_effect = None
+    runtime.native.destroy.reset_mock()
+    with pytest.raises(RuntimeError, match="share a communication stream"):
+        deepep.Lanes(group=runtime.group, config=config(), lanes=2)
+    assert runtime.native.destroy.call_count == 2
+
+
 def test_public_api_is_the_afd_transport_without_loading_torch():
     import afdep
     from afdep import Buffer, Config

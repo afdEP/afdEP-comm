@@ -895,18 +895,28 @@ class Lanes:
         previous = os.environ.get(PER_BUFFER_COMM_STREAM_ENV)
         if lanes > 1:
             os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
+        buffers: list[Buffer] = []
         try:
-            self._buffers = tuple(
-                Buffer(group=group, config=config) for _ in range(lanes)
-            )
+            for _ in range(lanes):
+                buffers.append(Buffer(group=group, config=config))
+            streams = [buffer.comm_stream for buffer in buffers]
+            if any(a == b for i, a in enumerate(streams) for b in streams[i + 1 :]):
+                raise RuntimeError("Lanes must not share a communication stream")
+        except BaseException:
+            # Free the lanes already built; the caller never receives them. Close
+            # is collective, so this completes only where every rank failed alike.
+            for buffer in reversed(buffers):
+                try:
+                    buffer.close()
+                except Exception:
+                    pass  # Report the construction error, not the cleanup's.
+            raise
         finally:
             if previous is None:
                 os.environ.pop(PER_BUFFER_COMM_STREAM_ENV, None)
             else:
                 os.environ[PER_BUFFER_COMM_STREAM_ENV] = previous
-        streams = [buffer.comm_stream for buffer in self._buffers]
-        if any(a == b for i, a in enumerate(streams) for b in streams[i + 1 :]):
-            raise RuntimeError("Lanes must not share a communication stream")
+        self._buffers = tuple(buffers)
 
     def __len__(self) -> int:
         return len(self._buffers)
