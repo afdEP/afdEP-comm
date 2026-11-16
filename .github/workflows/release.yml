@@ -1,7 +1,8 @@
 name: release
 
 # A merge that sets a new version in pyproject.toml (such as "Release 1.2.0") is
-# tagged v<version> and published as a GitHub release with the wheel and sdist.
+# tagged v<version> and published as a GitHub release with the wheel and sdist,
+# and the same files are uploaded to PyPI (trusted publishing, no token).
 on:
   push:
     branches: [main]
@@ -9,10 +10,12 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: pypi
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -26,14 +29,20 @@ jobs:
           tag="v$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           gh release view "$tag" > /dev/null 2>&1 || echo "new=true" >> "$GITHUB_OUTPUT"
-      - name: Build and publish
-        if: steps.version.outputs.new
+      - name: Build
         run: |
           python -m pip install build
           python -m build
           python tests/check_distribution.py
           python -m pip install --no-deps dist/*.whl
           test "v$(python -I -c 'import afdep; print(afdep.__version__)')" = "${{ steps.version.outputs.tag }}"
+      - name: Publish the GitHub release
+        if: steps.version.outputs.new
+        run: |
           gh release create "${{ steps.version.outputs.tag }}" dist/* \
             --target "$GITHUB_SHA" --title "afdEP-comm ${{ steps.version.outputs.tag }}" \
             --generate-notes
+      # A version that is already on PyPI is skipped, so a failed upload can be rerun.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
