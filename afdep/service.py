@@ -13,7 +13,7 @@ switch(client graph), for up to ROUNDS_PER_LAUNCH rounds per CPU launch.
 
 Resident mode launches one kernel for the whole run. It picks clients the same
 way and does the receive and the reply itself; the experts run either as CUDA
-graphs on a second stream (persistent kernel) or inside it (megakernel).
+graphs on a second stream (persistent kernel) or inside it (fused kernel).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ MAX_REGISTERS = 64
 SM_REGISTERS = 65536
 EXTRA_WORDS = 12  # afdep_ffn_resident's Client fields after the client row
 SHARED_FINISHED, SHARED_RING, RING_SIZE = 1, 10, 16  # afdep_ffn_resident's words
-UNIT_ROWS = 16  # rows per megakernel GEMM unit
+UNIT_ROWS = 16  # rows per fused kernel GEMM unit
 # ncclWindow_vidmem as int32 words: LSA rank and the peer stride in 4 GiB units.
 WINDOW_WORDS, WINDOW_LSA_RANK, WINDOW_STRIDE = 8, 4, 6
 
@@ -359,21 +359,21 @@ class FfnService:
 
         Persistent kernel: ``graphs[k]`` computes ``replies[k]`` (weighted expert
         rows) from ``boxes[k]`` and runs on ``scan_stream``; up to ``depth``
-        clients are received ahead of their reply. Megakernel: with ``gate_up``
+        clients are received ahead of their reply. Fused kernel: with ``gate_up``
         and ``down`` as [expert, input, column] the kernel computes ``replies[k]``
         itself, on every CTA, so ``ctas`` must all be resident at once.
         """
         c = buffers[0].config
         shape = (c.hidden_size, c.top_k, c.experts_per_rank, c.expert_alignment)
-        mega = gate_up is not None
-        inter = down.shape[1] if mega else 0
+        fused = gate_up is not None
+        inter = down.shape[1] if fused else 0
         # Ceiling: the vendored single-FFN-rank kernels use another wire format.
         if c.ffn_ranks < 2 or not 0 < depth <= RING_SIZE:
             raise ValueError("resident mode needs several FFN ranks and a ring depth")
         if ctas * RESIDENT_THREADS < c.experts_per_rank + c.attention_ranks:
             raise ValueError("resident grid is smaller than the count words")
-        if mega and (inter % 16 or c.hidden_size % 32):
-            raise ValueError("megakernel columns must divide into warps")
+        if fused and (inter % 16 or c.hidden_size % 32):
+            raise ValueError("fused kernel columns must divide into warps")
         sms = torch.cuda.get_device_properties(
             torch.cuda.current_device()
         ).multi_processor_count
@@ -412,7 +412,7 @@ class FfnService:
             )
         assert len(extra[0]) == EXTRA_WORDS
         rows = max(box.rows for box in boxes)
-        if mega:
+        if fused:
             gate_up, down = _tiles(gate_up), _tiles(down)
         self._keep = (boxes, replies, gate_up, down)
         self.extra = torch.tensor(extra, dtype=torch.int64, device="cuda")
@@ -420,7 +420,7 @@ class FfnService:
             SHARED_RING + RING_SIZE, dtype=torch.int32, device="cuda"
         )
         self.scratch = torch.empty(
-            rows if mega else 0, inter, dtype=torch.bfloat16, device="cuda"
+            rows if fused else 0, inter, dtype=torch.bfloat16, device="cuda"
         )
         self.work = torch.zeros(
             3 * (rows // UNIT_ROWS + c.experts_per_rank),
@@ -445,15 +445,15 @@ class FfnService:
             self.shared.data_ptr(),
             depth,
             *shape,
-            gate_up.data_ptr() if mega else 0,
-            down.data_ptr() if mega else 0,
+            gate_up.data_ptr() if fused else 0,
+            down.data_ptr() if fused else 0,
             inter,
             self.scratch.data_ptr(),
             self.work.data_ptr(),
         )
         types = (p, p, i, p, p, p, p, i, ll, i, p, i, i, i, i, i, p, p, i, p, p)
         self._resident_launch = ((values, types), ctas)
-        if mega:
+        if fused:
             return
         graph = _ok(runtime.cudaGraphCreate(0))
         loop = _ok(
