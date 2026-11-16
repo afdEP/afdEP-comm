@@ -542,6 +542,21 @@ def test_lanes_must_agree_and_must_not_share_a_stream(runtime):
         deepep.Lanes(group=runtime.group, config=config(), lanes=2)
 
 
+def test_a_peer_failure_before_the_native_constructor_raises_on_every_rank(runtime):
+    gather = runtime.dist.all_gather_object
+
+    def peer_fails(values, value, group):
+        gather(values, value, group)
+        if value == "":
+            values[1] = "ValueError: peer could not size its buffer"
+
+    runtime.dist.all_gather_object = peer_fails
+    with pytest.raises(RuntimeError, match="rank 1: ValueError: peer could not"):
+        elastic(runtime)
+    runtime.module.ElasticBuffer.assert_not_called()
+    runtime.module.destroy_nccl_comm.assert_called_once_with(17)
+
+
 def test_lanes_close_the_buffers_built_before_a_failure(runtime, monkeypatch):
     monkeypatch.delenv(deepep.PER_BUFFER_COMM_STREAM_ENV, raising=False)
     built = []

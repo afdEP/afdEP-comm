@@ -391,6 +391,7 @@ class ElasticBuffer:
         self._nccl_comm = int(
             module.create_nccl_comm(ids[0], self.world_size, self.rank)
         )
+        error = None
         try:
             self.physical_domain = tuple(
                 module.get_physical_domain_size(self._nccl_comm)
@@ -447,6 +448,19 @@ class ElasticBuffer:
             afd_args = [ffn_ranks] if afd else []
             if native_per_domain:
                 afd_args.append(native_per_domain)
+        except Exception as exc:
+            error = exc
+        # The native constructor is collective, so every rank raises here together
+        # when one cannot enter it. Ceiling: a failure inside it is still one-sided.
+        reports = self._gather(f"{type(error).__name__}: {error}" if error else "")
+        failures = [f"rank {i}: {e}" for i, e in enumerate(reports) if e]
+        if failures:
+            module.destroy_nccl_comm(self._nccl_comm)
+            self._closed = True
+            raise error or RuntimeError(
+                "DeepEP construction failed: " + "; ".join(failures)
+            )
+        try:
             self._runtime = module.ElasticBuffer(*native_args, *afd_args)
         except Exception:
             module.destroy_nccl_comm(self._nccl_comm)
