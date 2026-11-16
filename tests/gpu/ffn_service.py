@@ -6,7 +6,7 @@ Scan kernel only (one GPU, fake arrival counters):
 Every client k is one Attention DP group with its own Buffer to the FFN ranks:
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode host
-One resident launch per run (persistent kernel; ``mega`` needs ``--capture``):
+One resident launch per run (persistent kernel; ``fused`` needs ``--capture``):
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode persistent
 Communication-only evidence: no serving claims.
@@ -45,7 +45,7 @@ SEED = 1234
 KERNEL_TIMEOUT_NS = 2_000_000
 KERNEL_SENDERS, KERNEL_CTAS = 2, 2
 KERNEL_DEVICE_QUOTA = 40  # several ROUNDS_PER_LAUNCH launches per client
-RESIDENT_MODES = ("persistent", "mega")
+RESIDENT_MODES = ("persistent", "fused")
 MODES = ("host", "device", "static", *RESIDENT_MODES)
 # Qwen3.5 MoE attention (config.json of the captured checkpoint).
 HEAD_DIM, KV_HEADS, ROTARY_DIM, ROPE_THETA, NORM_EPS = 256, 2, 64, 1e7, 1e-6
@@ -496,13 +496,13 @@ def serve_layout(args) -> dict:
             if args.mode == "device":  # instantiation waits for an idle device
                 service.build_device()
             if resident:
-                mega = args.mode == "mega"
+                fused = args.mode == "fused"
                 service.build_resident(
                     [exchange.buffer for _, exchange in exchanges],
                     boxes,
                     replies,
-                    gate_up=experts.gate_up if mega else None,
-                    down=experts.down if mega else None,
+                    gate_up=experts.gate_up if fused else None,
+                    down=experts.down if fused else None,
                     depth=args.depth,
                     ctas=args.resident_ctas,
                 )

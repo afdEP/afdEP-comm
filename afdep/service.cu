@@ -139,7 +139,7 @@ extern "C" __global__ void afdep_ffn_resident(
         gridDim.x;
     const int global = blockIdx.x * threads + tid, warp = global / 32, warps = ctas *
         threads / 32;
-    const bool leader = global == 0, mega = gate_up != nullptr;
+    const bool leader = global == 0, fused = gate_up != nullptr;
     const int hidden_bytes = hidden * 2, meta_at = (hidden_bytes + 31) / 32 * 32;
     const int token_bytes = meta_at + (topk * 12 + 4 + 31) / 32 * 32;
     const int reply_bytes = meta_at + (topk * 8 + 31) / 32 * 32, meta_words = 2 + topk;
@@ -165,7 +165,7 @@ extern "C" __global__ void afdep_ffn_resident(
                 __threadfence();
                 shared[RECEIVED] = ++ received;
                 phase = IDLE;
-                if (mega) {
+                if (fused) {
                     items = 0;
                     for (int e = 0; e < experts; ++ e) {
                         const int end = e ? c.psum[e - 1] : 0;
@@ -197,7 +197,7 @@ extern "C" __global__ void afdep_ffn_resident(
             }
             const long long start = timer();
             for (int end = 0; phase == IDLE;) {
-                if (not mega and shared[COMPUTED] != replied) {
+                if (not fused and shared[COMPUTED] != replied) {
                     phase = REPLY;
                     client = shared[RING + replied % RING_SIZE];
                     break;
