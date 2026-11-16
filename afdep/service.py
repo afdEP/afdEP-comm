@@ -43,9 +43,12 @@ DEFAULT_TIMEOUT_NS = 30_000_000_000
 LOG_CAPACITY = 1 << 20
 SCAN_THREADS = 32
 RESIDENT_THREADS = 256
+# Lets four resident CTAs share one SM (65536 registers).
+MAX_REGISTERS = 64
+SM_REGISTERS = 65536
 EXTRA_WORDS = 12  # afdep_ffn_resident's Client fields after the client row
 SHARED_FINISHED, SHARED_RING, RING_SIZE = 1, 10, 16  # afdep_ffn_resident's words
-UNIT_ROWS = 8  # rows per megakernel GEMM unit
+UNIT_ROWS = 16  # rows per megakernel GEMM unit
 # ncclWindow_vidmem as int32 words: LSA rank and the peer stride in 4 GiB units.
 WINDOW_WORDS, WINDOW_LSA_RANK, WINDOW_STRIDE = 8, 4, 6
 
@@ -63,7 +66,9 @@ def _ok(result):
 def _load_scan(name: bytes = b"afdep_ffn_scan"):
     major, minor = torch.cuda.get_device_capability()
     arch = f"sm_{major}{minor}"
-    key = hashlib.sha256((SCAN_SOURCE + arch).encode()).hexdigest()[:16]
+    key = hashlib.sha256(
+        (SCAN_SOURCE + arch + f"r{MAX_REGISTERS}").encode()
+    ).hexdigest()[:16]
     cache = Path(os.environ.get("AFDEP_CACHE_DIR", Path.home() / ".cache" / "afdep"))
     cubin = cache / f"ffn_scan_{key}.cubin"
     if not cubin.exists():
@@ -77,6 +82,7 @@ def _load_scan(name: bytes = b"afdep_ffn_scan"):
                     str(nvcc),
                     "-cubin",
                     f"-arch={arch}",
+                    f"-maxrregcount={MAX_REGISTERS}",
                     "-o",
                     f"{work}/scan.cubin",
                     str(source),
@@ -87,6 +93,14 @@ def _load_scan(name: bytes = b"afdep_ffn_scan"):
     _ok(driver.cuInit(0))
     module = _ok(driver.cuModuleLoad(str(cubin).encode()))
     return module, _ok(driver.cuModuleGetFunction(module, name))
+
+
+def _tiles(weight: torch.Tensor) -> torch.Tensor:
+    """[expert, input, column] in tensor-core order: per 8 columns and 16 inputs,
+    32 lane words of inputs (2p, 2p+1, 2p+8, 2p+9) for column ``lane // 4``."""
+    e, k, c = weight.shape
+    packed = weight.mT.reshape(e, c // 8, 8, k // 16, 2, 4, 2)
+    return packed.permute(0, 1, 3, 2, 5, 4, 6).contiguous()
 
 
 def client_row(buffer: Buffer) -> list[int]:
@@ -207,7 +221,7 @@ class FfnService:
         return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull)
 
     def _launch_scan(
-        self, stream: int, args, function=None, grid=1, threads=SCAN_THREADS, shared=0
+        self, stream: int, args, function=None, grid=1, threads=SCAN_THREADS
     ) -> None:
         _ok(
             driver.cuLaunchKernel(
@@ -218,7 +232,7 @@ class FfnService:
                 threads,
                 1,
                 1,
-                shared,
+                0,
                 driver.CUstream(stream),
                 args,
                 0,
@@ -346,20 +360,25 @@ class FfnService:
         Persistent kernel: ``graphs[k]`` computes ``replies[k]`` (weighted expert
         rows) from ``boxes[k]`` and runs on ``scan_stream``; up to ``depth``
         clients are received ahead of their reply. Megakernel: with ``gate_up``
-        and ``down`` as [expert, column, input] the kernel computes ``replies[k]``
+        and ``down`` as [expert, input, column] the kernel computes ``replies[k]``
         itself, on every CTA, so ``ctas`` must all be resident at once.
         """
         c = buffers[0].config
         shape = (c.hidden_size, c.top_k, c.experts_per_rank, c.expert_alignment)
         mega = gate_up is not None
-        inter = down.shape[2] if mega else 0
+        inter = down.shape[1] if mega else 0
         # Ceiling: the vendored single-FFN-rank kernels use another wire format.
         if c.ffn_ranks < 2 or not 0 < depth <= RING_SIZE:
             raise ValueError("resident mode needs several FFN ranks and a ring depth")
         if ctas * RESIDENT_THREADS < c.experts_per_rank + c.attention_ranks:
             raise ValueError("resident grid is smaller than the count words")
-        if mega and (2 * inter % RESIDENT_THREADS or c.hidden_size % RESIDENT_THREADS):
-            raise ValueError("megakernel columns must divide into CTAs")
+        if mega and (inter % 16 or c.hidden_size % 32):
+            raise ValueError("megakernel columns must divide into warps")
+        sms = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).multi_processor_count
+        if ctas * RESIDENT_THREADS * MAX_REGISTERS > sms * SM_REGISTERS:
+            raise ValueError("resident CTAs must all fit on the device at once")
         extra = []
         header = torch.zeros(WINDOW_WORDS, dtype=torch.int32)
         for buffer, box, reply in zip(buffers, boxes, replies, strict=True):
@@ -393,13 +412,15 @@ class FfnService:
             )
         assert len(extra[0]) == EXTRA_WORDS
         rows = max(box.rows for box in boxes)
+        if mega:
+            gate_up, down = _tiles(gate_up), _tiles(down)
         self._keep = (boxes, replies, gate_up, down)
         self.extra = torch.tensor(extra, dtype=torch.int64, device="cuda")
         self.shared = torch.zeros(
             SHARED_RING + RING_SIZE, dtype=torch.int32, device="cuda"
         )
         self.scratch = torch.empty(
-            rows if mega else 0, 2 * inter, dtype=torch.bfloat16, device="cuda"
+            rows if mega else 0, inter, dtype=torch.bfloat16, device="cuda"
         )
         self.work = torch.zeros(
             3 * (rows // UNIT_ROWS + c.experts_per_rank),
@@ -408,15 +429,6 @@ class FfnService:
         )
         self._resident = _ok(
             driver.cuModuleGetFunction(self._module, b"afdep_ffn_resident")
-        )
-        staged = UNIT_ROWS * max(c.hidden_size, inter) * 2 if mega else 0
-        attribute = driver.CUfunction_attribute
-        _ok(
-            driver.cuFuncSetAttribute(
-                self._resident,
-                attribute.CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-                staged,
-            )
         )
         p, i, ll = ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong
         values = (
@@ -440,7 +452,7 @@ class FfnService:
             self.work.data_ptr(),
         )
         types = (p, p, i, p, p, p, p, i, ll, i, p, i, i, i, i, i, p, p, i, p, p)
-        self._resident_launch = ((values, types), ctas, staged)
+        self._resident_launch = ((values, types), ctas)
         if mega:
             return
         graph = _ok(runtime.cudaGraphCreate(0))
@@ -479,7 +491,7 @@ class FfnService:
 
     def serve_resident(self) -> int:
         """Run the resident kernel (and the experts graph loop) until no choice."""
-        args, ctas, staged = self._resident_launch
+        args, ctas = self._resident_launch
         self.shared.zero_()
         self.shared[SHARED_FINISHED] = ctas
         torch.cuda.synchronize()
@@ -489,7 +501,6 @@ class FfnService:
             self._resident,
             ctas,
             RESIDENT_THREADS,
-            staged,
         )
         if self._exec is not None:
             _ok(runtime.cudaGraphLaunch(self._exec, self.scan_stream.cuda_stream))

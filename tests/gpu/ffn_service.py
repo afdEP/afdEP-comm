@@ -501,8 +501,8 @@ def serve_layout(args) -> dict:
                     [exchange.buffer for _, exchange in exchanges],
                     boxes,
                     replies,
-                    gate_up=experts.gate_up.mT.contiguous() if mega else None,
-                    down=experts.down.mT.contiguous() if mega else None,
+                    gate_up=experts.gate_up if mega else None,
+                    down=experts.down if mega else None,
                     depth=args.depth,
                     ctas=args.resident_ctas,
                 )
