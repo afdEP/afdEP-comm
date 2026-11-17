@@ -48,7 +48,7 @@ domains of `U = world_size * f / ffn_ranks` ranks each, with hybrid mode on or o
 `Config` rejects a layout unless `hidden_size` is a multiple of 256,
 `top_k ≤ min(32, num_experts)`, and `num_experts` divides evenly over the FFN ranks.
 
-## The four calls
+## Buffer calls
 
 Rules for every exchange:
 
