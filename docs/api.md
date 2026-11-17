@@ -1,8 +1,11 @@
 # API contract
 
-A `Buffer` carries tokens from Attention ranks to FFN ranks and brings the results
-back. `Buffer(group=..., config=Config(...))` owns one NCCL communicator and one
-vendored DeepEP V2 ElasticBuffer. Before constructing it, the caller:
+afdEP-comm connects N Attention GPUs, which route tokens, with M FFN GPUs, which hold
+the experts. A `Buffer` dispatches the routed tokens to the experts and combines their
+outputs back at the source.
+
+`Buffer(group=..., config=Config(...))` owns one NCCL communicator and one vendored
+DeepEP V2 ElasticBuffer. Before constructing it, the caller:
 
 - creates a CPU **Gloo** process group and keeps it alive until `close()`;
 - sets the current CUDA device.
@@ -52,12 +55,12 @@ domains of `U = world_size * f / ffn_ranks` ranks each, with hybrid mode on or o
 
 Rules for every exchange:
 
-- Every rank uses the same `Config`, the same order of exchanges, and the same
-  `bucket` and `read_host_counts` in each exchange.
+- Every rank uses the same order of exchanges, and the same `bucket` and
+  `read_host_counts` in each exchange.
 - A Buffer allows one unmatched dispatch: collect it before the next dispatch.
 - All payload tensors are on the selected CUDA device.
-- The library does not quantize or run GEMMs, except the opt-in lossy reply
-  transport `AFDEP_HYBRID_FP8_COMBINE` below.
+- The library does not quantize or run GEMMs, except the opt-in
+  [FP8 replies](#fp8-replies).
 
 Below, `T` is the number of tokens one Attention rank sends, `H` is `hidden_size`
 and `K` is `top_k`.
@@ -116,16 +119,12 @@ its selected experts, in the original token order. `view=True` is described unde
 - Keep the captured tensors, the Buffer and the graph storage alive through every replay.
 - Source tensor shapes and `bucket` specialize the capture. Change payloads and IDs
   in place; encode inactive choices as `-1`.
-- This is capacity-bounded graph execution, not arbitrary-shape graph replay.
-- Graph capture/instantiation and replay are different operations; replay still
-  has a launch cost.
 
 ### Receive size
 
 `read_host_counts=True` performs host synchronization for exact eager receive
 allocation on FFN. Otherwise receive capacity is conservative and device counts
-identify live rows. Attention has zero receive payload rows. FFN bounds count
-Attention sources only.
+identify live rows.
 
 ### Registered buffers
 
@@ -141,8 +140,7 @@ Registered transport buffers are distinct from receive tensors, except for
 
 In one NVLink domain registered buffers are sized by role: FFN dispatch inboxes for
 the Attention sources and, when ranks do not exceed top-k, Attention combine inboxes
-for the FFN ranks; every rank registers the same size. `AFDEP_UNION_BUFFERS=1` keeps
-DeepEP's symmetric sizing, for comparison in measurements.
+for the FFN ranks; every rank registers the same size.
 
 ### Streams and lifetime
 
@@ -195,9 +193,7 @@ With two lanes and layers a, b, ...:
   <img alt="Attention: dispatch 0a, dispatch 1a, collect 0a, dispatch 0b, collect 1a, dispatch 1b. FFN: receive 0a, receive 1a, reply 0a, receive 0b, reply 1a, receive 1b" src="assets/api-lanes.svg">
 </picture>
 
-Mapping micro-batches to lanes and choosing this order belong to the caller. The
-GPU suite runs this order eagerly on per-lane streams and as one captured graph
-(`--lanes 2`).
+Mapping micro-batches to lanes and choosing this order belong to the caller.
 
 ## Transport and tuning
 
