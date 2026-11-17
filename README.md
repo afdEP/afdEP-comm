@@ -339,7 +339,8 @@ comm.close()  # Collective, after all exchanges and graph replays finish.
 
 Routing, quantization and expert computation belong to the caller. BF16 and
 prequantized FP8 dispatch return BF16 combined outputs. A Buffer holds one
-exchange at a time; use `Lanes` to overlap several (DBO). See the
+exchange at a time; use `Lanes` to overlap several (DBO) and `Units` to give
+each Attention unit its own Buffer over shared FFN ranks. See the
 [tensor, graph and lifecycle contract](docs/api.md).
 
 ## Support
