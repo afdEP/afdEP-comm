@@ -19,12 +19,10 @@ current CUDA device first, and keeps the group alive until close.
 
 One exchange is four `Buffer` calls. Attention calls 1 and 4, FFN calls 2 and 3:
 
-| # | Role | Call | Returns |
-|---|---|---|---|
-| 1 | Attention | `source_dispatch` | `None` |
-| 2 | FFN | `worker_receive` | `ReceiveResult` |
-| 3 | FFN | `worker_reply` | `None` |
-| 4 | Attention | `source_collect` | BF16 `[T,H]` output |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/api-calls-dark.svg">
+  <img alt="One exchange: source_dispatch on Attention, worker_receive and worker_reply on FFN, source_collect on Attention" src="assets/api-calls.svg">
+</picture>
 
 `Buffer.role` (`"ffn"` or `"attention"`) tells a rank which pair to call, and
 `Buffer.close()` ends the Buffer. The sections below give the contract of each call.
@@ -127,19 +125,22 @@ What an integration can rely on:
   feeds another.
 
 Every rank must still make the same calls on the same lane in the same order.
-With two lanes and layers a, b, ... Attention runs dispatch 0a, dispatch 1a,
-collect 0a, dispatch 0b, collect 1a, dispatch 1b, and FFN runs receive 0a,
-receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
-lanes and choosing this order belong to the caller. The GPU suite runs this order
-eagerly on per-lane streams and as one captured graph (`--lanes 2`).
+With two lanes and layers a, b, ...:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/api-lanes-dark.svg">
+  <img alt="Attention: dispatch 0a, dispatch 1a, collect 0a, dispatch 0b, collect 1a, dispatch 1b. FFN: receive 0a, receive 1a, reply 0a, receive 0b, reply 1a, receive 1b" src="assets/api-lanes.svg">
+</picture>
+
+Mapping micro-batches to lanes and choosing this order belong to the caller. The
+GPU suite runs this order eagerly on per-lane streams and as one captured graph
+(`--lanes 2`).
 
 ## Transport and tuning
 
 afdEP-comm keeps DeepEP's uniform logical expert numbering (Attention ranks own empty
 expert blocks, never legal routing targets) and its collective participation.
-`Buffer`, `Config`, `ReceiveResult` and `DispatchHandle` (the receipt type), all
-exported from `afdep`, are the integration API; new integrations should use them.
-Underneath is `afdep.deepep.ElasticBuffer`, which takes DeepEP's logical expert
+Underneath `Buffer` is `afdep.deepep.ElasticBuffer`, which takes DeepEP's logical expert
 numbering and the caller's own empty and zero tensors: pass `ffn_ranks=M` for
 afdEP-comm's transport, as `Buffer` does from `Config`; add `ffn_ranks_per_domain=f` for a
 per-domain FFN prefix, whose dispatch takes real expert IDs and maps them to the logical

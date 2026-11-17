@@ -25,7 +25,7 @@ module.exports = {
   projectName: 'afdEP-comm',
   trailingSlash: false,
   onBrokenLinks: 'throw',
-  staticDirectories: ['../docs/assets'],
+  staticDirectories: ['../docs/assets', 'static'],
   markdown: {
     format: 'detect',
     hooks: {
