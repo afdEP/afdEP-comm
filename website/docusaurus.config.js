@@ -3,16 +3,18 @@ const path = require('path');
 
 const repo = 'https://github.com/afdEP/afdEP-comm';
 
-// Prism theme limited to the logo palette.
-const prism = {
-  plain: {color: '#FFFFFF', backgroundColor: '#000000'},
+// Prism themes limited to the logo palette (colors match src/css/custom.css).
+const prism = (fg, bg, muted, accent) => ({
+  plain: {color: fg, backgroundColor: bg},
   styles: [
-    {types: ['comment', 'prolog'], style: {color: '#9E9D9D', fontStyle: 'italic'}},
-    {types: ['keyword', 'builtin', 'function', 'boolean', 'number'], style: {color: '#FCBA00'}},
-    {types: ['string', 'char', 'attr-value'], style: {color: '#9E9D9D'}},
-    {types: ['punctuation', 'operator'], style: {color: '#9E9D9D'}},
+    {types: ['comment', 'prolog'], style: {color: muted, fontStyle: 'italic'}},
+    {types: ['keyword', 'builtin', 'function', 'boolean', 'number'], style: {color: accent}},
+    {types: ['string', 'char', 'attr-value'], style: {color: muted}},
+    {types: ['punctuation', 'operator'], style: {color: muted}},
   ],
-};
+});
+const prismDark = prism('#FFFFFF', '#000000', '#9E9D9D', '#FCBA00');
+const prismLight = prism('#000000', '#FFFFFF', '#5F5E5E', '#8A6400');
 
 /** @type {import('@docusaurus/types').Config} */
 module.exports = {
@@ -48,7 +50,8 @@ module.exports = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      colorMode: {defaultMode: 'dark', disableSwitch: true, respectPrefersColorScheme: false},
+      // Dark unless the reader switches; the choice is kept in the browser.
+      colorMode: {defaultMode: 'dark', respectPrefersColorScheme: false},
       navbar: {
         logo: {alt: 'afdEP-comm', src: 'afdep-logo.png'},
         items: [
@@ -56,6 +59,6 @@ module.exports = {
           {href: repo, label: 'GitHub', position: 'right'},
         ],
       },
-      prism: {theme: prism, darkTheme: prism, additionalLanguages: ['bash']},
+      prism: {theme: prismLight, darkTheme: prismDark, additionalLanguages: ['bash']},
     }),
 };
