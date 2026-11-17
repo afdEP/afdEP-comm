@@ -59,7 +59,8 @@ html[data-theme='light'] {
 
 .navbar { border-bottom: 1px solid var(--line); }
 .navbar__logo img { height: 1.4rem; }
-.navbar__logo { height: auto; }
+/* flex: as an inline image the logo keeps a text descender gap below it and sits above the links. */
+.navbar__logo { display: flex; height: auto; }
 .menu__link--active:not(.menu__link--sublist) { color: var(--accent); }
 .theme-doc-markdown h1 { font-size: 1.9rem; }
 .theme-doc-markdown h2 { font-size: 1.3rem; margin-top: 1.8rem; }
