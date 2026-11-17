@@ -109,6 +109,29 @@ receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
 lanes and choosing this order belong to the caller. The GPU suite runs this order
 eagerly on per-lane streams and as one captured graph (`--lanes 2`).
 
+## One Buffer per Attention unit
+
+With one Buffer over every rank, all Attention ranks take part in every exchange
+and a change in their number rebuilds it. `Units` gives each Attention unit a
+Buffer of its own over the same FFN ranks:
+
+```python
+# group: FFN ranks [0, F), then `units` units of config.attention_ranks ranks each
+units = Units(group=group, config=config, units=3)  # collective, outside capture
+for buffer in units:  # FFN rank: every unit, in unit order; Attention rank: its own
+    ...
+units.close()
+```
+
+Each unit has its own Gloo subgroup, communicator, registered storage and
+communication stream, and its Buffer follows the single-Buffer contract above
+with `config.attention_ranks` sources. An exchange on one unit involves only the
+FFN ranks and that unit's ranks, and so does closing its Buffer. The FFN ranks
+still wait for every unit they receive from, and all of them serve the units in
+the same order. Every process of the job constructs `Units`, because
+`torch.distributed.new_group` is job-wide. A per-domain FFN prefix
+(`ffn_ranks_per_domain`) is rejected: it has not been validated with units.
+
 ## Transport and tuning
 
 afdEP-comm keeps DeepEP's uniform logical expert numbering (Attention ranks own empty
