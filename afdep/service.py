@@ -10,6 +10,8 @@ on its own stream while the previous exchange runs and queues the chosen client'
 captured exchange behind it. Device mode runs ROUNDS_PER_BODY rounds per WHILE
 iteration inside one CUDA graph, each scan beside the previous round's
 switch(client graph), for up to ROUNDS_PER_LAUNCH rounds per CPU launch.
+With ``order_ring``, FFN rank 0 publishes its picks in NCCL window words and the
+other FFN ranks serve that order instead of picking on their own.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from pathlib import Path
 import torch
 from cuda.bindings import driver, runtime
 
+from ._build import nccl_paths
 from .deepep import Buffer
 
 CHOICE_STOP, CHOICE_DONE, CHOICE_TIMEOUT = -1, -2, -3
@@ -37,6 +40,10 @@ CONTROL_STOP, CONTROL_CHOICE = 0, 1
 DEFAULT_TIMEOUT_NS = 30_000_000_000
 LOG_CAPACITY = 1 << 20
 SCAN_THREADS = 32
+# The leader's order ring: arrival words no exit uses (above 2 * 1024 ranks + 3,
+# below the count-first words at 4110). A leader is at most one pick per client
+# ahead of a follower, because a client sends again only after every reply.
+ORDER_BASE, ORDER_WORDS = 2064, 1024
 
 SCAN_SOURCE = Path(__file__).with_suffix(".cu").read_text()
 
@@ -66,6 +73,7 @@ def _load_scan():
                     str(nvcc),
                     "-cubin",
                     f"-arch={arch}",
+                    f"-I{nccl_paths()[0]}",
                     "-o",
                     f"{work}/scan.cubin",
                     str(source),
@@ -82,12 +90,22 @@ def client_row(buffer: Buffer) -> list[int]:
     """The scan's view of one client Buffer on this FFN rank (5 words)."""
     if buffer.role != "ffn":
         raise ValueError("FfnService runs on FFN ranks")
-    base, directed, per_cta = buffer.transport._runtime.get_afd_arrival_words()
+    base, directed, per_cta, _ = buffer.transport._runtime.get_afd_arrival_words()
     if not directed:
         raise ValueError("FfnService needs the directed exit of one NVLink domain")
     c = buffer.config
     ctas = buffer.transport._resolved_num_sms if per_cta else 1
     return [base, c.world_size, c.ffn_ranks, c.attention_ranks, ctas]
+
+
+def order_ring(buffer: Buffer) -> tuple[int, int, int]:
+    """(this FFN rank's order ring words, the Buffer's NCCL window, this rank)."""
+    if buffer.role != "ffn":
+        raise ValueError("FfnService runs on FFN ranks")
+    base, directed, _, window = buffer.transport._runtime.get_afd_arrival_words()
+    if not directed:  # a follower loads the leader's word through the window mapping
+        raise ValueError("FfnService needs the directed exit of one NVLink domain")
+    return base + ORDER_BASE * 8, window, buffer.rank
 
 
 class FfnService:
@@ -96,6 +114,9 @@ class FfnService:
     ``rows[k]`` is ``client_row`` of this FFN rank's Buffer for client k.
     ``quota[k]`` exchanges end client k (0: unlimited; stop with ``stop()``).
     Graphs for device mode need ``torch.cuda.CUDAGraph(keep_graph=True)``.
+    ``order`` is ``order_ring`` of one client Buffer (the same client on every FFN
+    rank): every FFN rank then serves FFN rank 0's order. Every rank must
+    ``reset`` before any rank serves.
     """
 
     def __init__(
@@ -106,9 +127,13 @@ class FfnService:
         rotate: bool = True,
         timeout_ns: int = DEFAULT_TIMEOUT_NS,
         stream: torch.cuda.Stream | None = None,
+        order: tuple[int, int, int] = (0, 0, 0),
     ) -> None:
         if not rows or len(rows) != len(graphs):
             raise ValueError("FfnService needs one graph per client")
+        if len(graphs) > ORDER_WORDS:
+            raise ValueError(f"FfnService serves at most {ORDER_WORDS} clients")
+        self.order = order
         self.graphs, self.rotate, self.timeout_ns = graphs, rotate, timeout_ns
         self.stream = stream or torch.cuda.Stream()
         self.scan_stream = torch.cuda.Stream()
@@ -135,6 +160,8 @@ class FfnService:
         self.state[STATE_LAST] = len(self.graphs) - 1
         self.log.fill_(-1)
         self.control.zero_()
+        if self.order[0] and not self.order[2]:  # the leader's ring
+            _ok(driver.cuMemsetD32(self.order[0], 0, 2 * ORDER_WORDS))
         for c, (base, ranks, *_) in enumerate(self.rows):  # dispatch round word
             _ok(
                 driver.cuMemcpyDtoD(
@@ -170,8 +197,11 @@ class FfnService:
             last,
             loop,
             branch,
+            self.order[0],
+            ORDER_WORDS,
+            *self.order[1:],
         )
-        return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull)
+        return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull, p, i, p, i)
 
     def _launch_scan(self, stream: int, args) -> None:
         _ok(

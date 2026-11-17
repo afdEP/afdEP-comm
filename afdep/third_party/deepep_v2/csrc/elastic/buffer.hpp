@@ -252,11 +252,11 @@ public:
     // afdEP FFN service: (dispatch arrival counter base, directed exit, per-CTA exit) for a
     // read-only readiness peek (afdep_roles.cuh layout: [phase][sender] arrivals, then rounds).
     // Only meaningful on the role path of one NVLink domain (directed exit true).
-    std::tuple<int64_t, bool, bool> get_afd_arrival_words() const {
+    std::tuple<int64_t, bool, bool, int64_t> get_afd_arrival_words() const {
         const bool directed = afd_ffn_ranks > 0 and nccl_context->num_scaleout_ranks == 1 and
                               nccl_context->is_scaleup_nvlink and afdep_directed_exit();
         return {reinterpret_cast<int64_t>(workspace_layout_wo_expert->get_scaleout_channel_signaled_tail_ptr(0, 0)),
-                directed, directed and afdep_per_cta_exit()};
+                directed, directed and afdep_per_cta_exit(), reinterpret_cast<int64_t>(nccl_context->window)};
     }
 
     // ReSharper disable once CppMemberFunctionMayBeStatic

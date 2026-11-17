@@ -33,6 +33,7 @@ from afdep.service import (
     ROUNDS_PER_LAUNCH,
     FfnService,
     client_row,
+    order_ring,
 )
 from tests.gpu.deepep import RECORDED_ENV_PREFIXES, Case, Exchange, verify
 
@@ -473,7 +474,13 @@ def serve_layout(args) -> dict:
         service = None
         if args.mode != "static":
             rows = [client_row(exchange.buffer) for _, exchange in exchanges]
-            service = FfnService(rows, graphs, rotate=not args.fixed, stream=stream)
+            service = FfnService(
+                rows,
+                graphs,
+                rotate=not args.fixed,
+                stream=stream,
+                order=order_ring(exchanges[0][1].buffer) if args.leader else (0, 0, 0),
+            )
             service.reset([args.rounds] * len(graphs))
             if args.mode == "device":  # instantiation waits for an idle device
                 service.build_device()
@@ -610,6 +617,9 @@ def main() -> None:
     parser.add_argument("--capture", default="", help="benchmarks/capture.py output")
     parser.add_argument("--split", choices=("random", "length"), default="random")
     parser.add_argument("--no-verify", dest="verify", action="store_false")
+    parser.add_argument(
+        "--leader", action="store_true", help="FFN rank 0 picks, the others follow"
+    )
     args = parser.parse_args()
     local, gpus = int(os.environ.get("LOCAL_RANK", 0)), torch.cuda.device_count()
     if local >= gpus:  # more ranks than GPUs: the extra ones share the Attention GPUs
@@ -636,7 +646,9 @@ def main() -> None:
     records = [None] * dist.get_world_size()
     dist.all_gather_object(records, record)
     if dist.get_rank() == 0:
-        print(json.dumps({**base, "args": vars(args), **summarize(records, args)}))
+        summary = summarize(records, args)
+        assert not args.leader or summary["order_divergence"] == 0
+        print(json.dumps({**base, "args": vars(args), **summary}))
     dist.destroy_process_group()
 
 
