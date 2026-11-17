@@ -542,6 +542,49 @@ def test_lanes_must_agree_and_must_not_share_a_stream(runtime):
         deepep.Lanes(group=runtime.group, config=config(), lanes=2)
 
 
+def unit_runtime(runtime, rank):
+    """A job of 2 FFN ranks and 2 Attention units of one rank each."""
+    runtime.group.rank = lambda: rank
+    runtime.dist.get_process_group_ranks = lambda group: list(range(group.size()))
+    created = []
+
+    def new_group(ranks):
+        created.append(ranks)
+        return SimpleNamespace(
+            rank=lambda: ranks.index(rank) if rank in ranks else -1,
+            size=lambda: len(ranks),
+        )
+
+    runtime.dist.new_group, runtime.dist.destroy_process_group = new_group, Mock()
+    runtime.native.get_comm_stream.side_effect = object
+    return created
+
+
+@pytest.mark.parametrize("rank, held", [(0, 2), (2, 1), (3, 1)])
+def test_units_give_each_attention_unit_its_own_buffer(runtime, rank, held):
+    created = unit_runtime(runtime, rank)
+    units = deepep.Units(group=runtime.group, config=config(attention_ranks=1), units=2)
+    assert created == [[0, 1, 2], [0, 1, 3]]
+    assert len(units) == held and all(buffer.config.world_size == 3 for buffer in units)
+    assert units[0].role == ("ffn" if rank < 2 else "attention")
+    units.close()
+    assert runtime.native.destroy.call_count == held
+    assert runtime.dist.destroy_process_group.call_count == held
+
+
+def test_units_reject_a_mismatched_layout(runtime):
+    unit_runtime(runtime, 0)
+    with pytest.raises(ValueError, match="positive int"):
+        deepep.Units(group=runtime.group, config=config(), units=0)
+    with pytest.raises(ValueError, match="does not match"):
+        deepep.Units(group=runtime.group, config=config(), units=2)
+    with pytest.raises(ValueError, match=r"ranks \[0, ffn_ranks\)"):
+        deepep.Units(
+            group=runtime.group, config=config(ffn_ranks_per_domain=1), units=1
+        )
+    runtime.module.ElasticBuffer.assert_not_called()
+
+
 def test_a_peer_failure_before_the_native_constructor_raises_on_every_rank(runtime):
     gather = runtime.dist.all_gather_object
 
@@ -604,9 +647,14 @@ def test_public_api_is_the_afd_transport_without_loading_torch():
     # An integration needs no name from afdep.deepep beyond these.
     assert afdep.DispatchHandle is deepep.DispatchHandle
     assert afdep.ReceiveResult is deepep.ReceiveResult
-    assert {"Buffer", "Config", "DispatchHandle", "Lanes", "ReceiveResult"} <= set(
-        afdep.__all__
-    )
+    assert {
+        "Buffer",
+        "Config",
+        "DispatchHandle",
+        "Lanes",
+        "ReceiveResult",
+        "Units",
+    } <= set(afdep.__all__)
 
 
 @pytest.mark.parametrize(
