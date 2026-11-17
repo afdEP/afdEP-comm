@@ -20,7 +20,7 @@ and run outside CUDA graph capture.
 | `Buffer` | One exchange at a time between the Attention and FFN ranks of one group |
 | `Lanes` | Several Buffers on one group, for overlapping exchanges |
 | `ReceiveResult` | What `worker_receive` returns: rows, weights, row ranges per expert and the receipt |
-| `DispatchHandle` | Opaque receipt of one dispatch, returned unchanged to `worker_reply` |
+| `DispatchHandle` | Receipt of one dispatch, returned unchanged to `worker_reply` |
 
 One exchange is four `Buffer` calls. Attention calls 1 and 4, FFN calls 2 and 3:
 
