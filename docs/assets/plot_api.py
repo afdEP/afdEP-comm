@@ -1,9 +1,3 @@
-"""Draw the two figures of docs/api.md: the four calls and the two-lane order.
-
-Usage: uv run --with matplotlib python docs/assets/plot_api.py
-Writes one light and one dark SVG per figure next to this file.
-"""
-
 from pathlib import Path
 
 import matplotlib
