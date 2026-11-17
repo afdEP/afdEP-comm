@@ -5,6 +5,30 @@ vendored DeepEP V2 ElasticBuffer. Initialization and `close()` are collective,
 outside CUDA capture. The caller owns a CPU **Gloo** process group, sets the
 current CUDA device first, and keeps the group alive until close.
 
+## Public API
+
+`afdep` exports five names:
+
+| Name | Purpose |
+|---|---|
+| `Config` | Layout and transport settings, identical on every rank |
+| `Buffer` | One exchange at a time between the Attention and FFN ranks of one group |
+| `Lanes` | Several Buffers on one group, for overlapping exchanges |
+| `ReceiveResult` | Result of `worker_receive`: rows, weights, expert prefix sums and the receipt |
+| `DispatchHandle` | Opaque receipt of one dispatch, returned unchanged to `worker_reply` |
+
+One exchange is four `Buffer` calls. Attention calls 1 and 4, FFN calls 2 and 3:
+
+| # | Role | Call | Returns |
+|---|---|---|---|
+| 1 | Attention | `source_dispatch` | `None` |
+| 2 | FFN | `worker_receive` | `ReceiveResult` |
+| 3 | FFN | `worker_reply` | `None` |
+| 4 | Attention | `source_collect` | BF16 `[T,H]` output |
+
+`Buffer.role` (`"ffn"` or `"attention"`) tells a rank which pair to call, and
+`Buffer.close()` ends the Buffer. The sections below give the contract of each call.
+
 ## Roles and tensors
 
 FFN ranks come first; each owns `num_experts / ffn_ranks` consecutive real experts.
