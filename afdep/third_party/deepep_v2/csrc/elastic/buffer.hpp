@@ -249,6 +249,16 @@ public:
                 afd_fp8_combine, afd_fp8_min_bucket, 0};
     }
 
+    // afdEP FFN service: (dispatch arrival counter base, directed exit, per-CTA exit) for a
+    // read-only readiness peek (afdep_roles.cuh layout: [phase][sender] arrivals, then rounds).
+    // Only meaningful on the role path of one NVLink domain (directed exit true).
+    std::tuple<int64_t, bool, bool, int64_t> get_afd_arrival_words() const {
+        const bool directed = afd_ffn_ranks > 0 and nccl_context->num_scaleout_ranks == 1 and
+                              nccl_context->is_scaleup_nvlink and afdep_directed_exit();
+        return {reinterpret_cast<int64_t>(workspace_layout_wo_expert->get_scaleout_channel_signaled_tail_ptr(0, 0)),
+                directed, directed and afdep_per_cta_exit(), reinterpret_cast<int64_t>(nccl_context->window)};
+    }
+
     // ReSharper disable once CppMemberFunctionMayBeStatic
     void barrier(const bool& use_comm_stream, const bool& with_cpu_sync) const {
         const auto compute_stream = at::cuda::getCurrentCUDAStream();
@@ -1670,6 +1680,7 @@ static void register_apis(pybind11::module_& m) {
         .def("get_logical_domain_size", &ElasticBuffer::get_logical_domain_size)
         .def("get_afd_count_first_config", &ElasticBuffer::get_afd_count_first_config)
         .def("get_afd_sparse_hybrid_config", &ElasticBuffer::get_afd_sparse_hybrid_config)
+        .def("get_afd_arrival_words", &ElasticBuffer::get_afd_arrival_words)
         .def("barrier", &ElasticBuffer::barrier)
         .def("engram_write", &ElasticBuffer::engram_write)
         .def("engram_fetch", &ElasticBuffer::engram_fetch)
