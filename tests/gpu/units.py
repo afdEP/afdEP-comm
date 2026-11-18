@@ -124,7 +124,12 @@ def main() -> None:
         num_sms=args.num_sms,
         allow_hybrid_mode=args.hybrid == "on",
     )
-    units = Units(group=dist.group.WORLD, config=config, units=args.units)
+    units = Units(
+        group=dist.group.WORLD,
+        config=config,
+        units=args.units,
+        buffer_per_attention_unit=True,
+    )
     is_ffn = rank < args.ffn_ranks
     my_unit = (rank - args.ffn_ranks) // sources
     held = list(enumerate(units)) if is_ffn else [(my_unit, units[0])]

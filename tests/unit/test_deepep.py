@@ -563,13 +563,46 @@ def unit_runtime(runtime, rank):
 @pytest.mark.parametrize("rank, held", [(0, 2), (2, 1), (3, 1)])
 def test_units_give_each_attention_unit_its_own_buffer(runtime, rank, held):
     created = unit_runtime(runtime, rank)
-    units = deepep.Units(group=runtime.group, config=config(attention_ranks=1), units=2)
+    units = deepep.Units(
+        group=runtime.group,
+        config=config(attention_ranks=1),
+        units=2,
+        buffer_per_attention_unit=True,
+    )
     assert created == [[0, 1, 2], [0, 1, 3]]
     assert len(units) == held and all(buffer.config.world_size == 3 for buffer in units)
     assert units[0].role == ("ffn" if rank < 2 else "attention")
     units.close()
     assert runtime.native.destroy.call_count == held
     assert runtime.dist.destroy_process_group.call_count == held
+
+
+@pytest.mark.parametrize("rank", [0, 3])
+def test_units_share_one_buffer_by_default(runtime, rank):
+    created = unit_runtime(runtime, rank)
+    units = deepep.Units(group=runtime.group, config=config(attention_ranks=1), units=2)
+    assert created == []
+    assert len(units) == 1
+    assert units[0].config == config(attention_ranks=2)
+    assert units[0].rank == rank
+    units.close()
+    runtime.native.destroy.assert_called_once()
+    runtime.dist.destroy_process_group.assert_not_called()
+
+
+def test_units_require_agreement_before_creating_buffers(runtime):
+    created = unit_runtime(runtime, 0)
+
+    def mixed_modes(values, layout, group):
+        values[:] = [layout] * group.size()
+        units, enabled, cfg = layout
+        values[-1] = (units, not enabled, cfg)
+
+    runtime.dist.all_gather_object = mixed_modes
+    with pytest.raises(ValueError, match="same Units layout"):
+        deepep.Units(group=runtime.group, config=config(attention_ranks=1), units=2)
+    assert created == []
+    runtime.module.ElasticBuffer.assert_not_called()
 
 
 def test_units_reject_a_mismatched_layout(runtime):
@@ -580,7 +613,10 @@ def test_units_reject_a_mismatched_layout(runtime):
         deepep.Units(group=runtime.group, config=config(), units=2)
     with pytest.raises(ValueError, match=r"ranks \[0, ffn_ranks\)"):
         deepep.Units(
-            group=runtime.group, config=config(ffn_ranks_per_domain=1), units=1
+            group=runtime.group,
+            config=config(ffn_ranks_per_domain=1),
+            units=1,
+            buffer_per_attention_unit=True,
         )
     runtime.module.ElasticBuffer.assert_not_called()
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
 from ._build import load_deepep, source_digest
@@ -935,34 +935,46 @@ class Lanes:
 
 
 class Units:
-    """One Buffer per Attention unit, every unit over the same FFN ranks.
+    """Buffers for equally sized Attention units sharing the same FFN ranks.
 
-    ``group`` holds the FFN ranks [0, F) and then ``units`` Attention units of
-    ``config.attention_ranks`` ranks each; ``config`` describes one unit. An FFN
-    rank holds every unit's Buffer in unit order, an Attention rank only its own.
-    Each unit has its own Gloo subgroup, communicator and registered storage, so
-    no unit's exchange involves the ranks of another unit. Every process of the
-    job constructs it (``torch.distributed.new_group`` is job-wide). Constructor
-    and close are collective, outside capture.
+    Config describes one unit in both modes. By default every rank holds one
+    Buffer on the caller's group. With buffer_per_attention_unit=True, each FFN
+    rank holds every unit's Buffer in unit order; an Attention rank holds only
+    its own. In that mode every process in the job must participate in subgroup
+    creation. Construct and close collectively, outside capture.
     """
 
-    def __init__(self, *, group: dist.ProcessGroup, config: Config, units: int) -> None:
+    def __init__(
+        self,
+        *,
+        group: dist.ProcessGroup,
+        config: Config,
+        units: int,
+        buffer_per_attention_unit: bool = False,
+    ) -> None:
         import torch.distributed as dist
 
-        if type(units) is not int or units < 1:
+        layout = (units, buffer_per_attention_unit, asdict(config))
+        layouts = [None] * group.size()
+        dist.all_gather_object(layouts, layout, group=group)
+        if any(type(count) is not int or count < 1 for count, _, _ in layouts):
             raise ValueError("units must be a positive int")
-        # A per-domain FFN prefix has not been validated with units.
-        if config.ffn_ranks_per_domain:
-            raise ValueError("Units requires the FFN ranks to be ranks [0, ffn_ranks)")
-        counts = [None] * group.size()
-        dist.all_gather_object(counts, units, group=group)
-        if any(count != units for count in counts):
-            raise ValueError("Every AFD rank must use the same number of units")
+        if any(type(enabled) is not bool for _, enabled, _ in layouts):
+            raise ValueError("buffer_per_attention_unit must be a boolean")
+        if any(other != layout for other in layouts):
+            raise ValueError("Every AFD rank must use the same Units layout")
         ffn, attention = config.ffn_ranks, config.attention_ranks
         if group.size() != ffn + units * attention:
             raise ValueError("group size does not match ffn_ranks plus the units")
+        self._groups = []
+        if not buffer_per_attention_unit:
+            shared_config = replace(config, attention_ranks=units * attention)
+            self._buffers = (Buffer(group=group, config=shared_config),)
+            return
+        if config.ffn_ranks_per_domain:
+            raise ValueError("Units requires the FFN ranks to be ranks [0, ffn_ranks)")
         job_ranks = dist.get_process_group_ranks(group)
-        self._groups, buffers = [], []
+        buffers = []
         with _own_comm_streams(units > 1):
             for unit in range(units):
                 first = ffn + unit * attention

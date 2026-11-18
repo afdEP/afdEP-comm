@@ -113,17 +113,22 @@ eagerly on per-lane streams and as one captured graph (`--lanes 2`).
 
 With one Buffer over every rank, all Attention ranks take part in every exchange
 and a change in their number rebuilds it. `Units` gives each Attention unit a
-Buffer of its own over the same FFN ranks:
+Buffer of its own over the same FFN ranks when enabled. Pass the same startup
+option on every rank. Both modes take a Config describing one unit.
 
 ```python
 # group: FFN ranks [0, F), then `units` units of config.attention_ranks ranks each
-units = Units(group=group, config=config, units=3)  # collective, outside capture
+units = Units(group=group, config=config, units=3, buffer_per_attention_unit=True)
 for buffer in units:  # FFN rank: every unit, in unit order; Attention rank: its own
     ...
 units.close()
 ```
 
-Each unit has its own Gloo subgroup, communicator, registered storage and
+With the option omitted or set to `False`, every rank gets one Buffer on the
+original group, sized for `units * config.attention_ranks` Attention ranks.
+Closing it leaves the caller’s group intact.
+
+With the option enabled, each unit has its own Gloo subgroup, communicator, registered storage and
 communication stream, and its Buffer follows the single-Buffer contract above
 with `config.attention_ranks` sources. An exchange on one unit involves only the
 FFN ranks and that unit's ranks, and so does closing its Buffer. The FFN ranks
