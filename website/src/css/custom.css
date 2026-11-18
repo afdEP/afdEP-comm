@@ -5,30 +5,35 @@
   --gray: #9E9D9D;
   --yellow: #FCBA00;
   --line: rgb(158 157 157 / 25%);
+  /* Theme colors; the light theme below replaces these four. */
+  --bg: var(--black);
+  --fg: var(--white);
+  --muted: var(--gray);
+  --accent: var(--yellow);
 
-  --ifm-color-primary: var(--yellow);
-  --ifm-color-primary-dark: var(--yellow);
-  --ifm-color-primary-darker: var(--yellow);
-  --ifm-color-primary-darkest: var(--yellow);
-  --ifm-color-primary-light: var(--yellow);
-  --ifm-color-primary-lighter: var(--yellow);
-  --ifm-color-primary-lightest: var(--yellow);
-  --ifm-background-color: var(--black);
-  --ifm-background-surface-color: var(--black);
-  --ifm-font-color-base: var(--white);
-  --ifm-color-content-secondary: var(--gray);
-  --ifm-heading-color: var(--white);
+  --ifm-color-primary: var(--accent);
+  --ifm-color-primary-dark: var(--accent);
+  --ifm-color-primary-darker: var(--accent);
+  --ifm-color-primary-darkest: var(--accent);
+  --ifm-color-primary-light: var(--accent);
+  --ifm-color-primary-lighter: var(--accent);
+  --ifm-color-primary-lightest: var(--accent);
+  --ifm-background-color: var(--bg);
+  --ifm-background-surface-color: var(--bg);
+  --ifm-font-color-base: var(--fg);
+  --ifm-color-content-secondary: var(--muted);
+  --ifm-heading-color: var(--fg);
   --ifm-toc-border-color: var(--line);
   --ifm-hr-background-color: var(--line);
   --ifm-table-border-color: var(--line);
   --ifm-table-stripe-background: rgb(158 157 157 / 6%);
   --ifm-code-background: rgb(158 157 157 / 15%);
-  --ifm-menu-color: var(--gray);
+  --ifm-menu-color: var(--muted);
   --ifm-menu-color-background-active: transparent;
   --ifm-menu-color-background-hover: rgb(158 157 157 / 10%);
-  --ifm-navbar-background-color: var(--black);
+  --ifm-navbar-background-color: var(--bg);
   --ifm-navbar-height: 3rem;
-  --ifm-navbar-link-color: var(--gray);
+  --ifm-navbar-link-color: var(--muted);
   --ifm-navbar-shadow: none;
 
   --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -44,16 +49,24 @@
   --ifm-pre-padding: 0.8rem;
 }
 
+/* Light theme: the yellow and the gray are darkened to stay readable on white. */
+html[data-theme='light'] {
+  --bg: var(--white);
+  --fg: var(--black);
+  --muted: #5F5E5E;
+  --accent: #8A6400;
+}
+
 .navbar { border-bottom: 1px solid var(--line); }
 .navbar__logo img { height: 1.4rem; }
 .navbar__logo { height: auto; }
-.menu__link--active:not(.menu__link--sublist) { color: var(--yellow); }
+.menu__link--active:not(.menu__link--sublist) { color: var(--accent); }
 .theme-doc-markdown h1 { font-size: 1.9rem; }
 .theme-doc-markdown h2 { font-size: 1.3rem; margin-top: 1.8rem; }
 .theme-doc-markdown h3 { font-size: 1.05rem; }
 .markdown a, .table-of-contents__link--active { text-decoration: underline; text-underline-offset: 2px; }
 table { font-size: 0.9rem; }
-th { color: var(--yellow); font-family: var(--ifm-font-family-monospace); font-weight: 600; }
+th { color: var(--accent); font-family: var(--ifm-font-family-monospace); font-weight: 600; }
 pre, .theme-code-block { border: 1px solid var(--line); }
 .markdown img { background: var(--white); border-radius: var(--ifm-global-radius); }
 .footer { display: none; }
@@ -61,12 +74,12 @@ pre, .theme-code-block { border: 1px solid var(--line); }
 /* Landing page */
 .hero-afdep { padding: 4rem 1rem 3rem; text-align: center; border-bottom: 1px solid var(--line); }
 .hero-afdep img { width: min(560px, 90%); }
-.hero-afdep p { color: var(--gray); font-size: 1.1rem; margin: 1.2rem auto 1.8rem; max-width: 42rem; }
+.hero-afdep p { color: var(--muted); font-size: 1.1rem; margin: 1.2rem auto 1.8rem; max-width: 42rem; }
 .hero-afdep .button { margin: 0 0.3rem; font-family: var(--ifm-font-family-monospace); }
-.button--primary { color: var(--black) !important; }
+.button--primary { background: var(--yellow); border-color: var(--yellow); color: var(--black) !important; }
 .stats { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
-.stats div { flex: 1 1 12rem; background: var(--black); padding: 1.4rem 1rem; text-align: center; }
-.stats b { display: block; color: var(--yellow); font: 600 2rem var(--ifm-font-family-monospace); }
-.stats span { color: var(--gray); font-size: 0.85rem; }
+.stats div { flex: 1 1 12rem; background: var(--bg); padding: 1.4rem 1rem; text-align: center; }
+.stats b { display: block; color: var(--accent); font: 600 2rem var(--ifm-font-family-monospace); }
+.stats span { color: var(--muted); font-size: 0.85rem; }
 .quick { max-width: 46rem; margin: 2.5rem auto; padding: 0 1rem; }
-.quick h2 { font-size: 1.1rem; color: var(--gray); }
+.quick h2 { font-size: 1.1rem; color: var(--muted); }
