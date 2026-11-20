@@ -1,7 +1,9 @@
 name: release
 
-# A merge that sets a new version in pyproject.toml (such as "Release 1.2.0") is
-# tagged v<version> and published as a GitHub release with the wheel and sdist.
+# A merge that sets a new version in pyproject.toml (such as "Release 1.2.0")
+# prepares a draft GitHub release v<version> with the wheel and sdist. The
+# "Protect release tags" ruleset lets only an administrator create a v* tag, so an
+# administrator publishes the draft, and publishing creates the tag.
 on:
   push:
     branches: [main]
@@ -36,4 +38,4 @@ jobs:
           test "v$(python -I -c 'import afdep; print(afdep.__version__)')" = "${{ steps.version.outputs.tag }}"
           gh release create "${{ steps.version.outputs.tag }}" dist/* \
             --target "$GITHUB_SHA" --title "afdEP-comm ${{ steps.version.outputs.tag }}" \
-            --generate-notes
+            --generate-notes --draft
