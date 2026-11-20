@@ -27,7 +27,7 @@ class ElasticBuffer {
 
     // Workspace
     // NOTES: for all workspace, we must keep them as zeros
-    void *workspace;
+    void *workspace = nullptr;
     void *host_workspace, *mapped_host_workspace;
     std::shared_ptr<layout::WorkspaceLayout> workspace_layout_wo_expert;
 
@@ -132,10 +132,25 @@ public:
             layout::WorkspaceLayout::get_num_bytes() + num_buffer_bytes, kBufferAlignment,
             allow_hybrid_mode, sl_idx, num_allocated_qps);
 
+        // Timeout
+        this->num_cpu_timeout_secs = num_cpu_timeout_secs;
+        this->num_gpu_timeout_cycles = static_cast<int64_t>(num_gpu_timeout_secs);
+        this->num_gpu_timeout_cycles *= jit::device_runtime->get_clock_rate();
+
+        // Allocate host workspaces
+        CUDA_RUNTIME_CHECK(cudaMallocHost(&host_workspace, layout::WorkspaceLayout::get_num_bytes(), cudaHostAllocMapped));
+        CUDA_RUNTIME_CHECK(cudaHostGetDevicePointer(&mapped_host_workspace, host_workspace, 0));
+        std::memset(host_workspace, 0, layout::WorkspaceLayout::get_num_bytes());
+
+        // afdEP: nothing above waits for a peer; `connect` is the collective half
+    }
+
+    void connect() {
+        nccl_context->connect();
+
         // afdEP count-first: the role path of one NVLink domain with every role protocol;
         // afdep/deepep.py checks that every rank latched the same configuration and a valid arm.
-        // Nothing is checked here: one rank throwing would leave its peers in the collective
-        // window registration above. Generic buffers never read the screen arm.
+        // Nothing is checked here. Generic buffers never read the screen arm.
         if (afd_ffn_ranks > 0) {
             afd_cf_arm = afdep_count_first_arm();
             afd_cf_source_only = afd_cf_arm == "source";
@@ -156,22 +171,12 @@ public:
             afdep_hybrid_fp8_combine();
         afd_fp8_min_bucket = afd_fp8_combine ? afdep_hybrid_fp8_combine_min_bucket() : 0;
 
-        // Timeout
-        this->num_cpu_timeout_secs = num_cpu_timeout_secs;
-        this->num_gpu_timeout_cycles = static_cast<int64_t>(num_gpu_timeout_secs);
-        this->num_gpu_timeout_cycles *= jit::device_runtime->get_clock_rate();
-
         // Assign workspaces and buffers
         workspace = this->nccl_context->mapped_window_ptr;
         workspace_layout_wo_expert = std::make_shared<layout::WorkspaceLayout>(
             workspace, nccl_context->num_scaleout_ranks, nccl_context->num_scaleup_ranks, 0);
         buffer = static_cast<uint8_t*>(workspace) + layout::WorkspaceLayout::get_num_bytes();
         CUDA_RUNTIME_CHECK(cudaMemset(workspace, 0, layout::WorkspaceLayout::get_num_bytes()));
-
-        // Allocate host workspaces
-        CUDA_RUNTIME_CHECK(cudaMallocHost(&host_workspace, layout::WorkspaceLayout::get_num_bytes(), cudaHostAllocMapped));
-        CUDA_RUNTIME_CHECK(cudaHostGetDevicePointer(&mapped_host_workspace, host_workspace, 0));
-        std::memset(host_workspace, 0, layout::WorkspaceLayout::get_num_bytes());
 
         // We should call a barrier at the end
         // The barrier should be called by Python `dist.barrier`
@@ -192,7 +197,8 @@ public:
         EP_HOST_ASSERT(not destroyed);
 
         // Finish all works on all GPUs
-        barrier(true, true);
+        if (workspace != nullptr)  // afdEP: never connected when a peer failed first
+            barrier(true, true);
 
         // Deallocate host workspaces
         CUDA_RUNTIME_CHECK(cudaFreeHost(host_workspace));
@@ -1665,6 +1671,7 @@ static void register_apis(pybind11::module_& m) {
         .def(pybind11::init<int, int, int64_t, int64_t, bool, bool, bool, bool, int, int, int, int, bool, int>())
         .def(pybind11::init<int, int, int64_t, int64_t, bool, bool, bool, bool, int, int, int, int, bool, int, int>())
         .def("destroy", &ElasticBuffer::destroy)
+        .def("connect", &ElasticBuffer::connect)
         .def("get_comm_stream", &ElasticBuffer::get_comm_stream)
         .def("get_physical_domain_size", &ElasticBuffer::get_physical_domain_size)
         .def("get_logical_domain_size", &ElasticBuffer::get_logical_domain_size)

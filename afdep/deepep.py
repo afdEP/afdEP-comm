@@ -448,20 +448,24 @@ class ElasticBuffer:
             afd_args = [ffn_ranks] if afd else []
             if native_per_domain:
                 afd_args.append(native_per_domain)
+            # Local: no rank waits for a peer inside this constructor.
+            self._runtime = module.ElasticBuffer(*native_args, *afd_args)
         except Exception as exc:
             error = exc
-        # The native constructor is collective, so every rank raises here together
-        # when one cannot enter it. Ceiling: a failure inside it is still one-sided.
+        # `connect` is collective, so every rank raises here together when one failed
+        # before it. Ceiling: a failure inside `connect` itself is still one-sided.
         reports = self._gather(f"{type(error).__name__}: {error}" if error else "")
         failures = [f"rank {i}: {e}" for i, e in enumerate(reports) if e]
         if failures:
+            if error is None:
+                self._runtime.destroy()
             module.destroy_nccl_comm(self._nccl_comm)
             self._closed = True
             raise error or RuntimeError(
                 "DeepEP construction failed: " + "; ".join(failures)
             )
         try:
-            self._runtime = module.ElasticBuffer(*native_args, *afd_args)
+            self._runtime.connect()
         except Exception:
             module.destroy_nccl_comm(self._nccl_comm)
             self._closed = True
@@ -482,8 +486,7 @@ class ElasticBuffer:
             raise ValueError(
                 "Every DeepEP rank must use the same count-first configuration"
             )
-        # The native constructor latches the screen arm unchecked (one rank throwing
-        # there would leave its peers in the collective window registration); every
+        # The native runtime latches the screen arm unchecked; every
         # rank sees the same gathered value, so every rank rejects it here together.
         if count_first[0][1] not in ("full", "source"):
             self.close()

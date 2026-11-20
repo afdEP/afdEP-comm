@@ -66,6 +66,7 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
                                                        const size_t& size, const size_t& alignment,
                                                        const bool& allow_hybrid_mode,
                                                        const int& sl_idx, const int& num_allocated_qps):
+    size(size), alignment(alignment), allow_hybrid_mode(allow_hybrid_mode),
     rank_idx(rank_idx), num_ranks(num_ranks), num_allocated_qps(num_allocated_qps) {
     if (get_env("EP_BUFFER_DEBUG", 0)) {
         int nccl_version;
@@ -91,7 +92,7 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
     // EP_DISABLE_GIN=1 turns GIN off even when it is available (single node).
     const bool gin_available =
         (allow_hybrid_mode ? props.railedGinType : props.ginType) != NCCL_GIN_TYPE_NONE;
-    const bool gin_enabled =
+    gin_enabled =
         num_ranks > 1 and gin_available and get_env("EP_DISABLE_GIN", 0) == 0;
     if (get_env("EP_BUFFER_DEBUG", 0))
         printf("NCCL GIN type: railed=%d full=%d (available for this mode: %d, enabled: %d)\n",
@@ -99,7 +100,7 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
                static_cast<int>(gin_available), static_cast<int>(gin_enabled));
 
     // Initialize NCCL device communicator
-    ncclDevCommRequirements_t reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+    reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
     if (gin_enabled) {
     // ### PATCH END: allow NVLink-only nodes without NCCL GIN
         reqs.ginContextCount = num_allocated_qps;
@@ -110,6 +111,17 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
         reqs.ginSignalCount = num_ranks + 2 * 2;
         reqs.ginConnectionType = allow_hybrid_mode ? NCCL_GIN_CONNECTION_RAIL: NCCL_GIN_CONNECTION_FULL;
     }
+    // ### PATCH START: afdEP splits the collective half of construction into `connect`
+    // Everything above and the allocation can fail on one rank alone, so the ranks
+    // agree (afdep/deepep.py) before any of them waits for its peers in `connect`.
+    NCCL_CHECK(ncclMemAlloc(&raw_window_ptr, size));
+    EP_HOST_ASSERT(size % alignment == 0);
+    EP_HOST_ASSERT(reinterpret_cast<uint64_t>(raw_window_ptr) % alignment == 0);
+}
+
+void NCCLSymmetricMemoryContext::connect() {
+    // `ncclDevCommCreate` is collective as well
+    // ### PATCH END: afdEP splits the collective half of construction into `connect`
     NCCL_CHECK(ncclDevCommCreate(comm, &reqs, &dev_comm));
 
     // Now we know the NVLink domain size
@@ -134,10 +146,8 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
     }
     is_scaleup_nvlink = num_scaleup_ranks == num_nvl_ranks;
 
-    // Create window
     // NOTES: `ncclCommWindowRegister` is collective: it internally calls bootstrapBarrier
     // across all ranks, so no explicit barrier is needed after this call.
-    NCCL_CHECK(ncclMemAlloc(&raw_window_ptr, size));
     NCCL_CHECK(ncclCommWindowRegister(comm, raw_window_ptr, size, &window, NCCL_WIN_DEFAULT));
     NCCL_CHECK(ncclGetLsaDevicePointer(window, 0, nvl_rank_idx, &mapped_window_ptr));
 
@@ -148,8 +158,6 @@ NCCLSymmetricMemoryContext::NCCLSymmetricMemoryContext(const int64_t& nccl_comm,
         NCCL_CHECK(ncclGetLsaDevicePointer(window, 0, i, &nvl_window_ptrs[i]));
 
     // TODO: push NCCL team to support aligned allocation
-    EP_HOST_ASSERT(size % alignment == 0);
-    EP_HOST_ASSERT(reinterpret_cast<uint64_t>(raw_window_ptr) % alignment == 0);
     EP_HOST_ASSERT(reinterpret_cast<uint64_t>(mapped_window_ptr) % alignment == 0);
 }
 
@@ -160,11 +168,14 @@ void* NCCLSymmetricMemoryContext::get_sym_ptr(void* ptr, const int& dst_rank_idx
 
 void NCCLSymmetricMemoryContext::finalize() const {
     // Deregister window and free buffer
-    NCCL_CHECK(ncclCommWindowDeregister(comm, window));
+    const bool connected = mapped_window_ptr != nullptr;  // afdEP: false when a peer failed first
+    if (connected)
+        NCCL_CHECK(ncclCommWindowDeregister(comm, window));
     NCCL_CHECK(ncclMemFree(raw_window_ptr));
 
     // Destroy device communicator
-    NCCL_CHECK(ncclDevCommDestroy(comm, &dev_comm));
+    if (connected)
+        NCCL_CHECK(ncclDevCommDestroy(comm, &dev_comm));
 }
 
 }  // namespace deep_ep::nccl

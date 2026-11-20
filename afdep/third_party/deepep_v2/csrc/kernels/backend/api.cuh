@@ -26,6 +26,9 @@ struct NCCLSymmetricMemoryContext {
 private:
     // Can not use this unmapped pointer from outside
     void* raw_window_ptr;
+    size_t size, alignment;
+    bool allow_hybrid_mode, gin_enabled;
+    ncclDevCommRequirements_t reqs;
 
 public:
     // Global
@@ -45,7 +48,7 @@ public:
     ncclComm_t comm;
     ncclDevComm_t dev_comm;
     ncclWindow_t window;
-    void* mapped_window_ptr;
+    void* mapped_window_ptr = nullptr;
     std::vector<void*> nvl_window_ptrs;
 
     // Configs
@@ -59,6 +62,9 @@ public:
 
     // TODO: finish this with `explicit_destroy`
     // ~NCCLSymmetricMemoryContext();
+
+    // afdEP: the collective half of construction, after the ranks agreed to proceed
+    void connect();
 
     void* get_sym_ptr(void* ptr, const int& dst_rank_idx) const;
 

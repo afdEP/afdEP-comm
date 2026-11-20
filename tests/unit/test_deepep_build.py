@@ -298,7 +298,7 @@ def test_fp8_combine_switch_is_latched_and_agreement_checked():
         'deep_ep::get_env<int>("AFDEP_HYBRID_FP8_COMBINE", 0) != 0;'
     ) in suites
     buffer = (VENDOR_ROOT / "csrc/elastic/buffer.hpp").read_text()
-    # Read once, in the constructor latch, gated on the directional hybrid.
+    # Read once, in the construction latch, gated on the directional hybrid.
     assert buffer.count("afdep_hybrid_fp8_combine()") == 1
     latch = buffer[buffer.index("afd_fp8_combine = afd_ffn_ranks > 0") :]
     latch = latch[: latch.index(";")]
@@ -310,7 +310,7 @@ def test_fp8_combine_switch_is_latched_and_agreement_checked():
     ):
         assert condition in latch, condition
     assert buffer.index("afd_fp8_combine = afd_ffn_ranks > 0") < buffer.index(
-        "// Timeout\n"
+        "// Assign workspaces and buffers\n"
     )
     assert (
         "std::tuple<int, bool, bool, int, bool, int, int> "
@@ -326,7 +326,7 @@ def test_fp8_combine_switch_is_latched_and_agreement_checked():
     ) in buffer
     assert buffer.count("afdep_hybrid_fp8_combine_min_bucket()") == 1
     assert buffer.index("afd_fp8_min_bucket = afd_fp8_combine") < buffer.index(
-        "// Timeout\n"
+        "// Assign workspaces and buffers\n"
     )
     assert (
         'std::max(deep_ep::get_env<int>("AFDEP_HYBRID_FP8_COMBINE_MIN_BUCKET", 0), 0)'

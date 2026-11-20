@@ -1,9 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Expected failure: one rank fails inside the native DeepEP constructor.
-
-Every rank should raise. Today only the failing rank does; its peers stay inside the
-collective constructor. This check exits 0 while that limit holds and exits 1 once
-every rank raises: then drop the expected-failure branch and require all ranks.
+"""One rank fails inside the native DeepEP constructor; every rank has to raise.
 
 Example: EP_DISABLE_GIN=1 python -m tests.gpu.construct_failure
 """
@@ -75,11 +71,9 @@ def main() -> None:
     ).stdout
     raised = sorted({int(rank) for rank in re.findall(rf"{RAISED} (\d+)", output)})
     waiting = sorted(set(range(RANKS)) - set(raised))
-    if FAIL_RANK not in raised:
-        sys.exit(f"the injected failure was not reported:\n{output}")
-    if not waiting:
-        sys.exit("unexpected pass: every rank raised; drop the expected failure")
-    print(f"expected failure: ranks {waiting} did not raise within {PEER_WAIT_S} s")
+    if waiting:
+        sys.exit(f"ranks {waiting} did not raise within {PEER_WAIT_S} s:\n{output}")
+    print(f"every rank raised: {raised}")
 
 
 if __name__ == "__main__":

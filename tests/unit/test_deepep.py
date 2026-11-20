@@ -553,7 +553,24 @@ def test_a_peer_failure_before_the_native_constructor_raises_on_every_rank(runti
     runtime.dist.all_gather_object = peer_fails
     with pytest.raises(RuntimeError, match="rank 1: ValueError: peer could not"):
         elastic(runtime)
-    runtime.module.ElasticBuffer.assert_not_called()
+    runtime.native.connect.assert_not_called()
+    runtime.native.destroy.assert_called_once()
+    runtime.module.destroy_nccl_comm.assert_called_once_with(17)
+
+
+def test_a_native_constructor_failure_is_shared_before_connecting(runtime):
+    gather, shared = runtime.dist.all_gather_object, []
+
+    def record(values, value, group):
+        shared.append(value)
+        gather(values, value, group)
+
+    runtime.dist.all_gather_object = record
+    runtime.module.ElasticBuffer.side_effect = RuntimeError("out of memory")
+    with pytest.raises(RuntimeError, match="out of memory"):
+        elastic(runtime)
+    assert "RuntimeError: out of memory" in shared
+    runtime.native.connect.assert_not_called()
     runtime.module.destroy_nccl_comm.assert_called_once_with(17)
 
 
