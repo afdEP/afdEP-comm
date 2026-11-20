@@ -4,7 +4,7 @@ title: afdEP-comm
 type: software
 authors:
   - name: afdEP-comm contributors
-version: 1.2.0
+version: 1.2.1
 license:
   - Apache-2.0
   - MIT
