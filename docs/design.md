@@ -1295,6 +1295,25 @@ Correctness on `bc3d223c`: the GPU suite passes on 2 × 4 with f = 1, 2 and 3 (f
 dispatch and replies lag behind the others', and domain 0 waits late after signalling, so domain 1's
 next dispatch lands while domain 0 still combines. This tree passes on 2 × 4 and 3 × 4 (f = 1 and 2, BF16 and FP8, capacities 64 and 512), as does a control with the barrier restored. Each negative control fails: combine signals on the tail words hang with exactly a signal plus a dispatch tail in the awaited word; the reply inbox at DeepEP's offset loses 55% of the late domain's outputs once the bucket reaches the channel count (capacity 512; below it a peer's inbox region starts past that offset); combine staging at DeepEP's offset corrupts 28–29% of the lagging domain's replies.
 
+### 21. Token-major FFN receive (opt-in, one NVLink domain)
+
+AFD basis: the FFN only receives in dispatch and only sends in combine, so its receive layout is an
+FFN-local choice. The source dispatch already sends one copy of a token per FFN rank; only the FFN
+copy epilogue expands it into expert rows, which combine's local reduction undoes.
+`Config(receive_layout="token")` exposes DeepEP V2's own non-expanded epilogue and combine: one row
+per token with its local expert IDs and weights, one reply row per token summed by the caller's
+expert code. Same wire, same source calls; no kernel source changes. Host-side, after the copy
+epilogue on the communication stream, padding rows get ID -1 and every -1 choice weight 0; under
+count-first the token-major FFN receives payload-first, as the source arm does. FP8 combine replies
+(directional hybrid only) stay expanded-only, and the Buffer rejects the token layout across NVLink
+domains until validated there. Not an optimization: no performance claim. Design and the API:
+[token-layout.md](token-layout.md).
+
+Correctness on `edd607bd` (4 × H100, one NVLink domain): 9 token-layout GPU-suite runs (2A2F, 3A:1F
+with the collect view, 1A:3F; BF16 and FP8; hidden 256 and 7168; top-k 2 and 8; two lanes;
+count-first full and source arms) and 4 expert-layout controls pass, Attention results bit-exact
+against the reference ([record](validation-token-layout.json)).
+
 ## 3:1 Attention:FFN: where the time goes (analysis)
 
 Three Attention ranks per FFN rank make one FFN serve three sources. One NVLink

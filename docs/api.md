@@ -22,8 +22,8 @@ on graph replay. All payload tensors are on the selected CUDA device.
 | Operation | Contract |
 |---|---|
 | `source_dispatch(x, ids, weights, x_scale=None, *, bucket, read_host_counts=False)` | Attention: contiguous `x [T,H]`, IDs/FP32 weights `[T,K]`, `T ≤ bucket ≤ capacity` |
-| `worker_receive(*, bucket, read_host_counts=False)` | FFN: expert-major rows, weights, device expert prefix sums and opaque receipt |
-| `worker_reply(rows, receipt)` | FFN: contiguous BF16 `[receive_rows,H]`, routing weight applied exactly once |
+| `worker_receive(*, bucket, read_host_counts=False)` | FFN: rows in `Config.receive_layout` (expert-major by default), weights, device expert prefix sums and opaque receipt |
+| `worker_reply(rows, receipt)` | FFN: contiguous BF16 `[receive_rows,H]`, routing weight applied exactly once; token layout: each row summed over the token's local experts |
 | `source_collect(*, view=False)` | Attention: BF16 `[T,H]` summed over selected experts, in original token order |
 
 BF16 dispatch uses BF16 activations. FP8 uses `float8_e4m3fn` activations and
@@ -38,6 +38,18 @@ Padding rows are unspecified and must not be treated as live tokens. Return the
 entire receive shape to `worker_reply`, with valid expert rows in place.
 `recv_counts_host`, when requested, reports **aligned** per-expert counts, not
 raw live counts. Keep the receipt unchanged through the matching reply.
+
+`Config(receive_layout="token")` ([design](token-layout.md)) receives one row per
+token instead, in one NVLink domain only (construction rejects more): `recv_x [N,H]`,
+`recv_topk_idx [N,K]` with local expert IDs in `[0, E)` or `-1` for experts held
+elsewhere, and FP32 `recv_topk_weights [N,K]`, `0` wherever the ID is `-1`. Rows
+`[recv_token_count, N)` (device `[1]` count) are padding with all IDs `-1`.
+`recv_count_psum` holds inclusive prefix sums of the aligned per-expert counts.
+`worker_reply` takes `[N,H]` BF16 rows, each the token's weighted sum over its
+local experts; combine sends them without a further local reduction. The wire,
+the source calls, lanes, graphs and streams are unchanged; FP8 combine replies
+stay off (`Buffer.fp8_combine` is `False`), and under count-first the FFN
+receives payload-first.
 
 ## Graphs, streams and lifetime
 

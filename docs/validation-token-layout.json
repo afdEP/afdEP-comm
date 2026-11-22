@@ -1,0 +1,401 @@
+{
+  "date": "2026-11-22",
+  "change": "token-major FFN receive, Config(receive_layout='token'), one NVLink domain (docs/token-layout.md); expert-major stays the default",
+  "decision": "correct in one NVLink domain for every case below; the expert layout passes unchanged on the same digest. Communication-only correctness evidence: no performance or serving claim.",
+  "native_source_sha256": "edd607bd84627560b3e3c1cefa62ae11e59973223cf53bbdc3354e58a11f075e",
+  "setup": "4 x H100 80GB HBM3 in one NVLink domain, EP_DISABLE_GIN=1; Python 3.12.3, PyTorch 2.13.0+cu130, NCCL 2.30.7 (wheel headers and runtime), nvcc 13.0; tests/gpu/deepep.py defaults otherwise (capacity 8, 8 transport SMs, 4 experts per FFN unless noted, hybrid setting on)",
+  "host": {
+    "pytest tests/unit": "65 passed",
+    "afdep doctor --build": "ok"
+  },
+  "checks": "per case: eager exchanges with and without host counts over mixed, changed, skewed, inactive-source, all-skipped, all-empty, partial-prefix and one-small-source routes (BF16 also wide magnitudes); captured graphs replayed with changing inputs, undelayed and with delayed peers; queued eager exchanges reusing host-counter storage; bucket changes between exchanges, eager and captured; with lanes=2 the DBO-order interleave, eager on per-lane streams and captured. Attention results bit-exact against the reference; token layout FFN: live count, per-expert counts and weight sums from recv_topk_idx, -1/0 padding and aligned prefix sums.",
+  "cases": {
+    "expert-2a2f-bf16-countfirst-full": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "expert",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": {
+        "AFDEP_COUNT_FIRST_MIN_BUCKET": "1"
+      },
+      "ffn_receive_bound_rows": 640,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "expert-2a2f-bf16": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "expert",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 640,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "expert-2a2f-fp8-lanes2": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "expert",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "fp8",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 2,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 640,
+      "eager_cases": 16,
+      "queued_eager_host_count_cases": 8,
+      "graph_replays": 32,
+      "checked_graph_exchanges": 832,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 64,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "expert-3a1f-bf16-k8-collect": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "expert",
+      "ffn_ranks": 1,
+      "attention_ranks": 3,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 8,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": true,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 1280,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-1a3f-fp8": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 3,
+      "attention_ranks": 1,
+      "payload": "fp8",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 12,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 8,
+      "eager_cases": 16,
+      "queued_eager_host_count_cases": 8,
+      "graph_replays": 32,
+      "checked_graph_exchanges": 832,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-bf16-countfirst-source": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": {
+        "AFDEP_COUNT_FIRST_ARM": "source",
+        "AFDEP_COUNT_FIRST_MIN_BUCKET": "1"
+      },
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-bf16-h7168-k8": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 7168,
+      "top_k": 8,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-bf16-lanes2": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 2,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 80,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-bf16": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-fp8-countfirst-full": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "fp8",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": {
+        "AFDEP_COUNT_FIRST_MIN_BUCKET": "1"
+      },
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 16,
+      "queued_eager_host_count_cases": 8,
+      "graph_replays": 32,
+      "checked_graph_exchanges": 832,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-2a2f-fp8": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 2,
+      "attention_ranks": 2,
+      "payload": "fp8",
+      "hidden": 256,
+      "top_k": 2,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 16,
+      "eager_cases": 16,
+      "queued_eager_host_count_cases": 8,
+      "graph_replays": 32,
+      "checked_graph_exchanges": 832,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-3a1f-bf16-k8-collect": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 1,
+      "attention_ranks": 3,
+      "payload": "bf16",
+      "hidden": 256,
+      "top_k": 8,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": true,
+      "count_first": "off",
+      "ffn_receive_bound_rows": 24,
+      "eager_cases": 18,
+      "queued_eager_host_count_cases": 9,
+      "graph_replays": 36,
+      "checked_graph_exchanges": 936,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    },
+    "token-3a1f-fp8-h7168-k8-countfirst": {
+      "ok": true,
+      "exit": 0,
+      "receive_layout": "token",
+      "ffn_ranks": 1,
+      "attention_ranks": 3,
+      "payload": "fp8",
+      "hidden": 7168,
+      "top_k": 8,
+      "experts": 8,
+      "capacity": 8,
+      "lanes": 1,
+      "collect_view": false,
+      "count_first": {
+        "AFDEP_COUNT_FIRST_MIN_BUCKET": "1"
+      },
+      "ffn_receive_bound_rows": 24,
+      "eager_cases": 16,
+      "queued_eager_host_count_cases": 8,
+      "graph_replays": 32,
+      "checked_graph_exchanges": 832,
+      "bucket_cycle_exchanges": {
+        "eager": 5,
+        "graph": 5
+      },
+      "interleaved_lane_exchanges": 0,
+      "physical_domain": [
+        1,
+        4
+      ]
+    }
+  },
+  "scope": "not run: more than one NVLink domain (rejected at construction for the token layout), per-domain FFN prefix, direct RDMA, invalid-route device assertions in the token layout (source-side and layout-independent), fault injection. The harness does not report the count-first launch shape; its configuration was set on every rank and latched as the constructor checks."
+}
