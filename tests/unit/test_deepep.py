@@ -86,11 +86,13 @@ def runtime(monkeypatch):
         scale = (
             Tensor((rows, 2), "fp32", contiguous=False) if args[1] is not None else None
         )
+        # args[23] is do_expand: the token-major receive also returns expert IDs.
+        expand, top_k = args[23], args[2].shape[1]
         return (
             Tensor((rows, 256), args[0].dtype),
             scale,
-            None,
-            Tensor((rows,), "fp32"),
+            None if expand else Tensor((rows, top_k), "i64"),
+            Tensor((rows,) if expand else (rows, top_k), "fp32"),
             args[2],
             [],
             Tensor((4,), "i32"),
@@ -496,6 +498,132 @@ def test_role_worker_dispatches_empty_and_preserves_receipt(runtime):
     rows = Tensor(received.recv_x.shape)
     buffer.worker_reply(rows, received.receipt)
     assert runtime.native.combine.call_args.args[0] is rows
+
+
+# Native positional flags: dispatch args[23] is do_expand, combine args[17] is
+# use_expanded_layout.
+DISPATCH_EXPAND, COMBINE_EXPANDED = 23, 17
+
+
+def test_token_layout_configuration_and_receive_bounds():
+    expert, token = config(), config(receive_layout="token")
+    assert expert.expanded and not token.expanded
+    # One row per (token, FFN rank) from each of the two Attention sources.
+    assert token.receive_rows(8) == 2 * 8 < expert.receive_rows(8)
+    with pytest.raises(ValueError, match="receive_layout"):
+        config(receive_layout="rank")
+
+
+def test_expert_layout_keeps_the_expanded_flags(runtime):
+    runtime.group.rank = lambda: 0
+    buffer = deepep.DeepEPBuffer(group=runtime.group, config=config())
+    received = buffer.worker_receive(bucket=8)
+    assert runtime.native.dispatch.call_args.args[DISPATCH_EXPAND] is True
+    assert received.expanded and received.recv_topk_idx is None
+    assert received.recv_topk_weights.shape == (4,)
+    buffer.worker_reply(Tensor(received.recv_x.shape), received.receipt)
+    assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is True
+
+
+def test_token_layout_worker_receives_token_rows_and_replies_unexpanded(runtime):
+    runtime.group.rank = lambda: 0
+    buffer = deepep.DeepEPBuffer(
+        group=runtime.group, config=config(receive_layout="token")
+    )
+    received = buffer.worker_receive(bucket=8)
+    assert runtime.native.dispatch.call_args.args[DISPATCH_EXPAND] is False
+    assert received.expanded is False and received.receipt.expanded is False
+    assert received.recv_topk_idx.shape == (4, 16)
+    assert received.recv_topk_weights.shape == (4, 16)
+    count = received.recv_token_count
+    assert count.view_parent is received.handle.psum_num_recv_tokens_per_scaleup_rank
+    rows = Tensor(received.recv_x.shape)
+    buffer.worker_reply(rows, received.receipt)
+    assert runtime.native.combine.call_args.args[0] is rows
+    assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is False
+
+
+def test_token_layout_source_dispatches_and_collects_in_the_same_layout(runtime):
+    buffer = deepep.DeepEPBuffer(
+        group=runtime.group, config=config(receive_layout="token")
+    )
+    x, ids, weights = Tensor((2, 256)), Tensor((2, 16), "i64"), Tensor((2, 16), "fp32")
+    buffer.source_dispatch(x, ids, weights, bucket=8)
+    assert runtime.native.dispatch.call_args.args[DISPATCH_EXPAND] is False
+    assert buffer.transport._pending.recv_shape == (0, 256)
+    buffer.source_collect()
+    assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is False
+
+
+def test_token_layout_must_agree_on_every_rank(runtime):
+    gather = runtime.dist.all_gather_object
+
+    def other_layout(values, value, group):
+        gather(values, value, group)
+        if isinstance(value, dict) and value.get("receive_layout") == "expert":
+            values[1] = value | {"receive_layout": "token"}
+
+    runtime.dist.all_gather_object = other_layout
+    with pytest.raises(ValueError, match="same Config"):
+        deepep.DeepEPBuffer(group=runtime.group, config=config())
+    runtime.module.ElasticBuffer.assert_not_called()
+
+
+def test_token_layout_is_rejected_across_nvlink_domains(runtime, monkeypatch):
+    monkeypatch.delenv("EP_DISABLE_GIN", raising=False)
+    runtime.module.get_physical_domain_size.return_value = (2, 2)
+    with pytest.raises(ValueError, match="one NVLink domain"):
+        deepep.DeepEPBuffer(group=runtime.group, config=config(receive_layout="token"))
+    runtime.native.destroy.assert_called_once()
+    runtime.module.destroy_nccl_comm.assert_called_once_with(17)
+
+
+def test_token_layout_requires_the_afd_transport(runtime):
+    buffer = elastic(runtime)
+    x, ids, weights = Tensor((2, 256)), Tensor((2, 16), "i64"), Tensor((2, 16), "fp32")
+    with pytest.raises(ValueError, match="AFD transport"):
+        buffer.dispatch(
+            x,
+            None,
+            ids,
+            weights,
+            bucket=8,
+            expert_alignment=128,
+            do_cpu_sync=False,
+            expand=False,
+        )
+    runtime.native.dispatch.assert_not_called()
+    with pytest.raises(ValueError, match="expand must be a boolean"):
+        elastic(runtime, ffn_ranks=2).dispatch(
+            x,
+            None,
+            ids,
+            weights,
+            bucket=8,
+            expert_alignment=128,
+            do_cpu_sync=False,
+            expand=0,
+        )
+    token = FastAFDConfig(**vars(config(receive_layout="token")))
+    with pytest.raises(ValueError, match="AFD transport"):
+        FastAFDBuffer(group=runtime.group, config=token)
+
+
+def test_token_layout_reports_no_fp8_combine(runtime):
+    runtime.native.get_afd_sparse_hybrid_config.return_value = (
+        0,
+        True,
+        True,
+        0,
+        True,
+        64,
+        0,
+    )
+    buffer = deepep.DeepEPBuffer(
+        group=runtime.group, config=config(receive_layout="token")
+    )
+    assert buffer.transport.fp8_combine is True
+    assert buffer.fp8_combine is False and buffer.fp8_combine_min_bucket == 0
 
 
 def test_lanes_give_each_buffer_its_own_stream_and_restore_the_environment(
