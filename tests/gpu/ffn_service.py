@@ -446,6 +446,11 @@ def serve_layout(args) -> dict:
     experts = None
     if is_ffn and args.capture:
         weights = torch.load(f"{args.capture}/weights.pt", mmap=True)
+        if len(weights["experts.gate_up"]) != args.experts_per_ffn * args.ffn:
+            # The router emits every checkpoint expert id; ids are not checked later.
+            raise ValueError(
+                "--experts-per-ffn * --ffn must equal the capture's experts"
+            )
         mine = slice(rank * args.experts_per_ffn, (rank + 1) * args.experts_per_ffn)
         experts = Experts(
             buffers[0][1].config,

@@ -136,7 +136,6 @@ class FfnService:
         self.order = order
         self.graphs, self.rotate, self.timeout_ns = graphs, rotate, timeout_ns
         self.stream = stream or torch.cuda.Stream()
-        self.scan_stream = torch.cuda.Stream()
         self.rows = rows
         self.clients = torch.tensor(
             [[*row, 0] for row in rows], dtype=torch.int64, device="cuda"
@@ -222,8 +221,10 @@ class FfnService:
 
     def scan(self) -> int:
         """Issue one round: the next ready client, or a negative choice (blocks)."""
-        self._launch_scan(self.scan_stream.cuda_stream, self._args(0))
-        self.scan_stream.synchronize()
+        # On the graphs' stream: this kernel spinning beside a running graph slows
+        # its expert GEMMs.
+        self._launch_scan(self.stream.cuda_stream, self._args(0))
+        self.stream.synchronize()
         return int(self.control[CONTROL_CHOICE])
 
     def serve_host(self) -> int:
