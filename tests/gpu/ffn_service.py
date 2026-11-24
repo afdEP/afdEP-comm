@@ -9,6 +9,8 @@ Every client k is one Attention DP group with its own Buffer to the FFN ranks:
 Two policies for the FFN ranks, over the same Buffers:
     take everyone     --mode static        every unit in one round, waiting for all
     take first ready  --mode host|device   the first unit whose tokens have arrived
+    take first layer group  --layers L     that unit and the next units ready at its
+                                           layer (exchange index mod L), one exchange
 Equal units get their Buffers from afdep.Units (--manual-buffers builds them here).
 Communication-only evidence: no serving claims.
 """
@@ -465,6 +467,57 @@ def kernel_checks() -> dict:
             else 0,
         }
     service.close()
+    results["groups"] = group_checks(words, rows)
+    return results
+
+
+def group_checks(words, rows) -> dict:
+    """Take First Layer Group: the first ready client and neighbours at its layer."""
+    k, ranks = len(words), 1 + KERNEL_SENDERS
+    graphs = [None] * (k * k)
+    for count in range(1, k + 1):
+        for first in range(k - count + 1):
+            graph = torch.cuda.CUDAGraph(keep_graph=True)
+            with torch.cuda.graph(graph, stream=torch.cuda.Stream()):
+                for w in words[first : first + count]:
+                    w[2 * ranks].add_(1)
+                    w[1 : 1 + KERNEL_SENDERS].add_(KERNEL_CTAS)
+            graphs[first + (count - 1) * k] = graph
+    torch.cuda.synchronize()
+    for w in words:
+        w.zero_()
+        release(w)
+    service = FfnService(rows, graphs, timeout_ns=KERNEL_TIMEOUT_NS, layers=2)
+    assert service.scan() == (k - 1) * k  # every client is ready at layer 0
+    release(words[0])
+    release(words[2])
+    assert [service.scan() for _ in range(2)] == [0, 2]  # client 1 is not ready
+    for w in words:
+        release(w)
+    # Client 1 is one layer behind its neighbours: no group.
+    assert [service.scan() for _ in range(3)] == [0, 1, 2]
+    release(words[1])
+    assert service.scan() == 1  # client 1 catches up
+    release(words[0])
+    release(words[1])
+    assert service.scan() == k  # clients 0 and 1; client 2 is not ready
+    results = {}
+    for mode in ("host", "device"):
+        for w in words:
+            w.zero_()
+            release(w)
+        service.reset([KERNEL_DEVICE_QUOTA] * k)
+        choice = getattr(service, f"serve_{mode}")()
+        served, picks = service.served()
+        torch.cuda.synchronize()
+        assert choice == CHOICE_DONE, choice
+        assert served == [KERNEL_DEVICE_QUOTA] * k, served
+        # A device scan runs beside the exchange that releases the next round, so
+        # it may see a part of the group.
+        assert mode == "device" or picks == [(k - 1) * k] * KERNEL_DEVICE_QUOTA
+        assert [int(w[2 * ranks]) for w in words] == [KERNEL_DEVICE_QUOTA] * k
+        results[mode] = {"served": served, "picks": len(picks)}
+    service.close()
     return results
 
 
@@ -571,6 +624,9 @@ def serve_layout(args) -> dict:
             weights["experts.down"][mine],
         )
     exchanges = [(k, Exchange(b, units[k][2], experts)) for k, b in buffers]
+    grouped = args.layers > 0
+    if grouped and args.mode == "static":
+        raise ValueError("--layers needs --mode host or device")
     replays = []
     if args.capture and not is_ffn:
         # Every (rank, decode buffer) pair replays its own share of conversations.
@@ -612,6 +668,22 @@ def serve_layout(args) -> dict:
             for batch in itertools.zip_longest(*per_unit):
                 merged_pass([e for e in batch if e is not None], experts)
         graphs.append(graph)
+    elif is_ffn and grouped:
+        # graphs[first + (count - 1) * K] serves Buffers [first, first + count).
+        # One graph runs at a time, so all of them share one memory pool.
+        graphs, pool = [None] * len(exchanges) ** 2, None
+        for count in range(1, len(exchanges) + 1):
+            for first in range(len(exchanges) - count + 1):
+                span = [exchange for _, exchange in exchanges[first : first + count]]
+                graph = torch.cuda.CUDAGraph(keep_graph=args.mode == "device")
+                with torch.cuda.graph(graph, pool=pool, stream=stream):
+                    if experts and count > 1:
+                        merged_pass(span, experts)
+                    else:
+                        for exchange in span:
+                            exchange.run()
+                pool = graph.pool()
+                graphs[first + (count - 1) * len(exchanges)] = graph
     else:
         for _, exchange in exchanges:
             graph = torch.cuda.CUDAGraph(keep_graph=args.mode == "device")
@@ -631,8 +703,9 @@ def serve_layout(args) -> dict:
                 rotate=not args.fixed,
                 stream=stream,
                 order=order_ring(exchanges[0][1].buffer) if args.leader else (0, 0, 0),
+                layers=args.layers,
             )
-            service.reset([args.rounds] * len(graphs))
+            service.reset([args.rounds] * len(rows))
             if args.mode == "device":  # instantiation waits for an idle device
                 service.build_device()
         dist.barrier()
@@ -646,12 +719,17 @@ def serve_layout(args) -> dict:
             order = list(range(len(exchanges))) * args.rounds
         else:
             choice = getattr(service, f"serve_{args.mode}")()
-            served, order = service.served()
+            served, picks = service.served()
+            n = len(served)
+            # A pick is first + (count - 1) * K: the order lists its units.
+            order = [u for p in picks for u in range(p % n, p % n + p // n + 1)]
+            sizes = [p // n + 1 for p in picks]
+            record["group_sizes"] = [sizes.count(c) for c in range(1, n + 1)]
         torch.cuda.synchronize()
         record.update(wall_s=time.perf_counter() - start, choice=choice, served=served)
         record["order"] = order
         assert choice == CHOICE_DONE, f"FFN rank {rank}: choice {choice}"
-        assert served == [args.rounds] * len(exchanges), served
+        assert served == [args.rounds] * len(served), served
         if service is not None:
             service.close()
     else:
@@ -783,6 +861,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--leader", action="store_true", help="FFN rank 0 picks, the others follow"
+    )
+    parser.add_argument(
+        "--layers",
+        type=int,
+        default=0,
+        help="take first layer group: a unit's layer is its exchange index mod this",
     )
     args = parser.parse_args()
     local, gpus = int(os.environ.get("LOCAL_RANK", 0)), torch.cuda.device_count()

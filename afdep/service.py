@@ -12,6 +12,8 @@ iteration inside one CUDA graph, each scan beside the previous round's
 switch(client graph), for up to ROUNDS_PER_LAUNCH rounds per CPU launch.
 With ``order_ring``, FFN rank 0 publishes its picks in NCCL window words and the
 other FFN ranks serve that order instead of picking on their own.
+With ``layers`` (Take First Layer Group), a pick also takes the next clients that
+are ready at the first one's layer, and one captured exchange serves the group.
 """
 
 from __future__ import annotations
@@ -117,6 +119,10 @@ class FfnService:
     ``order`` is ``order_ring`` of one client Buffer (the same client on every FFN
     rank): every FFN rank then serves FFN rank 0's order. Every rank must
     ``reset`` before any rank serves.
+    ``layers`` > 0: a client's layer is its served exchanges mod ``layers``, and
+    ``graphs[first + (count - 1) * K]`` serves clients ``[first, first + count)``
+    of the K clients in one exchange (None where the range passes K). A pick is
+    that index.
     """
 
     def __init__(
@@ -128,35 +134,37 @@ class FfnService:
         timeout_ns: int = DEFAULT_TIMEOUT_NS,
         stream: torch.cuda.Stream | None = None,
         order: tuple[int, int, int] = (0, 0, 0),
+        layers: int = 0,
     ) -> None:
-        if not rows or len(rows) != len(graphs):
-            raise ValueError("FfnService needs one graph per client")
-        if len(graphs) > ORDER_WORDS:
+        k = len(rows)
+        if not rows or len(graphs) != (k * k if layers > 0 else k):
+            raise ValueError("FfnService needs one graph per client or client range")
+        if any((g is None) != (i % k + i // k >= k) for i, g in enumerate(graphs)):
+            raise ValueError("FfnService needs a graph for every range of clients")
+        if k > ORDER_WORDS:
             raise ValueError(f"FfnService serves at most {ORDER_WORDS} clients")
-        self.order = order
+        self.order, self.layers = order, layers
         self.graphs, self.rotate, self.timeout_ns = graphs, rotate, timeout_ns
         self.stream = stream or torch.cuda.Stream()
         self.rows = rows
         self.clients = torch.tensor(
             [[*row, 0] for row in rows], dtype=torch.int64, device="cuda"
         )
-        self.state = torch.zeros(
-            STATE_SERVED + len(graphs), dtype=torch.int32, device="cuda"
-        )
-        self.quota = torch.zeros(len(graphs), dtype=torch.int32, device="cuda")
+        self.state = torch.zeros(STATE_SERVED + k, dtype=torch.int32, device="cuda")
+        self.quota = torch.zeros(k, dtype=torch.int32, device="cuda")
         self.log = torch.full((LOG_CAPACITY,), -1, dtype=torch.int32, device="cuda")
         # Pinned host words are device-visible through UVA: [stop, last choice].
         self.control = torch.zeros(2, dtype=torch.int32, pin_memory=True)
         self._module, self._function = _load_scan()
         self._exec = self._graph = None
-        self.reset([0] * len(graphs))
+        self.reset([0] * k)
 
     def reset(self, quota: list[int]) -> None:
         """New quotas; served counts, the order log and the stop flag restart."""
         torch.cuda.synchronize()
         self.quota.copy_(torch.tensor(quota, dtype=torch.int32))
         self.state.zero_()
-        self.state[STATE_LAST] = len(self.graphs) - 1
+        self.state[STATE_LAST] = len(self.rows) - 1
         self.log.fill_(-1)
         self.control.zero_()
         if self.order[0] and not self.order[2]:  # the leader's ring
@@ -184,7 +192,7 @@ class FfnService:
         )
         values = (
             self.clients.data_ptr(),
-            len(self.graphs),
+            len(self.rows),
             self.state.data_ptr(),
             self.quota.data_ptr(),
             self.control.data_ptr(),
@@ -199,8 +207,9 @@ class FfnService:
             self.order[0],
             ORDER_WORDS,
             *self.order[1:],
+            self.layers,
         )
-        return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull, p, i, p, i)
+        return values, (p, i, p, p, p, p, i, ll, i, i, i, ull, ull, p, i, p, i, i)
 
     def _launch_scan(self, stream: int, args) -> None:
         _ok(
@@ -268,6 +277,8 @@ class FfnService:
             )
             switches.append(switch)
             for child, client in zip(bodies, self.graphs, strict=True):
+                if client is None:
+                    continue
                 _ok(
                     runtime.cudaGraphAddChildGraphNode(
                         child, None, 0, runtime.cudaGraph_t(client.raw_cuda_graph())
@@ -327,7 +338,7 @@ class FfnService:
                 return choice
 
     def served(self) -> tuple[list[int], list[int]]:
-        """(exchanges served per client, service order) since the last reset."""
+        """(exchanges served per client, picks in order) since the last reset."""
         state = self.state.tolist()
         total = min(state[STATE_TOTAL], LOG_CAPACITY)
         return state[STATE_SERVED:], self.log[:total].tolist()
