@@ -26,6 +26,15 @@ on graph replay. All payload tensors are on the selected CUDA device.
 | `worker_reply(rows, receipt)` | FFN: contiguous BF16 `[receive_rows,H]`, routing weight applied exactly once |
 | `source_collect(*, view=False)` | Attention: BF16 `[T,H]` summed over selected experts, in original token order |
 
+`Config(receive_layout="token")` gives the FFN one row per token, with local expert
+IDs (`recv_topk_idx`, `-1` for a choice on another rank) and `[rows, top_k]` weights,
+instead of expert-major rows. It runs in one NVLink domain with BF16 replies.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/token-layout-dark.svg">
+  <img alt="One route as FFN rank 0 receives it in the expert layout and in the token layout, the copy epilogue's padding cleanup, and count-first receive order" src="assets/token-layout.svg">
+</picture>
+
 BF16 dispatch uses BF16 activations. FP8 uses `float8_e4m3fn` activations and
 FP32 block-128 scales `[T,H/128]`; strided scale views are supported. The library
 does not quantize or run GEMMs, except the opt-in lossy reply transport
