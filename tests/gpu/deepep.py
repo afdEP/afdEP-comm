@@ -120,9 +120,8 @@ def expert_rows(received, worker: int, config: Config):
 
 
 class Exchange:
-    def __init__(self, buffer: Buffer, rows: int, experts=None, senders=(0, 0)):
+    def __init__(self, buffer: Buffer, rows: int, experts=None):
         self.buffer, self.config, self.rows = buffer, buffer.config, rows
-        self.senders = senders  # FFN ranks: the Attention ranks this exchange serves
         # FFN ranks: received -> reply rows; the default is the verifiable identity.
         self.experts = experts or (
             lambda received: expert_rows(received, buffer.role_rank, buffer.config)
@@ -204,17 +203,11 @@ class Exchange:
                     self.config.hidden_size,
                 )
             return None
-        if not self.senders[1]:
-            received = self.buffer.worker_receive(
-                bucket=bucket, read_host_counts=host_counts
-            )
-        else:
-            received = self.buffer.worker_receive(bucket=bucket, senders=self.senders)
+        received = self.buffer.worker_receive(
+            bucket=bucket, read_host_counts=host_counts
+        )
         if self.afdep and not host_counts:
-            sources = self.senders[1] or self.config.attention_ranks
-            assert received.recv_x.shape[0] == self.config._receive_rows(
-                sources, bucket
-            )
+            assert received.recv_x.shape[0] == self.config.receive_rows(bucket)
         return received
 
     def finish(self, received, *, host_counts=False, delay=False):

@@ -543,13 +543,8 @@ class ElasticBuffer:
         bucket: int,
         expert_alignment: int,
         do_cpu_sync: bool,
-        senders: tuple[int, int] = (0, 0),
     ) -> ReceiveResult:
-        """Original expanded dispatch contract; retain handle through combine.
-
-        ``senders`` (FFN ranks): this exchange serves Attention ranks
-        ``[first, first + count)`` only; ``(0, 0)`` serves every one.
-        """
+        """Original expanded dispatch contract; retain handle through combine."""
         self._check_live()
         if self._pending is not None:
             raise RuntimeError("Complete the previous exchange before dispatch")
@@ -568,8 +563,6 @@ class ElasticBuffer:
         if self._is_ffn(self.rank) and x.shape[0]:
             raise ValueError("FFN ranks cannot originate tokens")
         num_sms = self._num_sms()
-        # Read by this dispatch and by its combine (one pending exchange per Buffer).
-        self._runtime.set_afd_senders(*senders)
         result = self._runtime.dispatch(
             x.contiguous(),
             x_scale,
@@ -852,19 +845,9 @@ class Buffer:
         )
 
     def worker_receive(
-        self,
-        *,
-        bucket: int,
-        read_host_counts: bool = False,
-        senders: tuple[int, int] = (0, 0),
+        self, *, bucket: int, read_host_counts: bool = False
     ) -> ReceiveResult:
-        """Participate with zero source tokens and receive expert-major rows.
-
-        ``senders=(first, count)`` receives from that range of Attention ranks only
-        (count-first receive of one NVLink domain, device counts); the matching
-        ``worker_reply`` answers the same range. A Buffer is received either
-        always whole or always by ranges.
-        """
+        """Participate with zero source tokens and receive expert-major rows."""
         self._check_role("ffn")
         return self.transport.dispatch(
             self._empty_x,
@@ -874,7 +857,6 @@ class Buffer:
             bucket=bucket,
             expert_alignment=self.config.expert_alignment,
             do_cpu_sync=read_host_counts,
-            senders=senders,
         )
 
     def source_collect(self, *, view: bool = False) -> torch.Tensor:

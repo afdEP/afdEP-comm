@@ -54,13 +54,6 @@ class ElasticBuffer {
     // ranks of every NVLink domain instead of ranks [0, afd_ffn_ranks). Zero: the global prefix.
     int afd_ffn_ranks_per_domain;
 
-    // afdEP sender subset (FFN service on one shared Buffer): the next FFN receive and its reply
-    // serve Attention senders [first, first + count) only; count 0 serves every sender.
-    // Shortcut: Buffer state instead of dispatch/combine arguments. It holds while a Buffer has
-    // one pending exchange (afdep/deepep.py enforces that); the upgrade is an argument on both calls.
-    int afd_first_sender = 0;
-    int afd_num_senders = 0;
-
     // afdEP count-first (afdep_suites.hpp), latched at construction: the minimum bucket (0: off)
     // and the raw screen arm ("source": sources only, against the payload-first FFN receive).
     int afd_cf_min_bucket = 0;
@@ -254,12 +247,6 @@ public:
             return {0, false, false, 0, false, 0, 0};
         return {afdep_hybrid_stagger_max_tokens(), afdep_hybrid_sparse_dispatch(), afdep_hybrid_sparse_combine(), 0,
                 afd_fp8_combine, afd_fp8_min_bucket, 0};
-    }
-
-    void set_afd_senders(const int& first, const int& count) {
-        EP_HOST_ASSERT(first >= 0 and count >= 0 and (count == 0 or afd_ffn_ranks > 0) and
-                       first + count <= nccl_context->num_ranks - afd_ffn_ranks);
-        afd_first_sender = first, afd_num_senders = count;
     }
 
     // afdEP FFN service: (dispatch arrival counter base, directed exit, per-CTA exit) for a
@@ -1229,8 +1216,7 @@ public:
                             get_combine_token_layout(hidden, sizeof(nv_bfloat16), num_topk).get_num_bytes<false>() : 0,
                         afd_dispatch_shape,
                         afdep_count_first_ungated_tokens(), afdep_count_first_thread_count(),
-                        afd_mixed_ffn_ranks, afd_domain_ffn_ranks,
-                        afd_source ? 0 : afd_first_sender, afd_source ? 0 : afd_num_senders);
+                        afd_mixed_ffn_ranks, afd_domain_ffn_ranks);
 
         // Received token counters
         int num_recv_tokens = 0, num_expanded_tokens = 0;
@@ -1303,9 +1289,7 @@ public:
             }
         } else {
             // Non-cached mode without CPU sync, allocate with the worst case
-            // afdEP sender subset: the receive holds rows of its senders only
-            const int source_ranks = not afd_role_aware ? nccl_context->num_ranks :
-                afd_num_senders > 0 and not afd_source ? afd_num_senders : nccl_context->num_ranks - afd_ffn_ranks;
+            const int source_ranks = afd_role_aware ? nccl_context->num_ranks - afd_ffn_ranks : nccl_context->num_ranks;
             num_recv_tokens = num_max_tokens_per_rank * source_ranks;
             num_expanded_tokens = source_ranks * num_max_tokens_per_rank * std::min(num_topk, num_local_experts);
             num_expanded_tokens += (expert_alignment - 1) * num_local_experts;
@@ -1622,8 +1606,7 @@ public:
                                                       nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain) > 0 :
                  afdep_domain_silent_rails(afd_ffn_ranks, nccl_context->num_scaleout_ranks,
                                            nccl_context->num_scaleup_ranks, afd_ffn_ranks_per_domain, num_topk,
-                                           allow_multiple_reduction)) ? afd_ffn_ranks_per_domain : 0,
-            afd_worker ? afd_first_sender : 0, afd_worker ? afd_num_senders : 0);
+                                           allow_multiple_reduction)) ? afd_ffn_ranks_per_domain : 0);
 
         // Allocate output tensors
         // afdEP single-FFN collect view: with one FFN rank in one NVLink domain (rank layout), each
@@ -1698,7 +1681,6 @@ static void register_apis(pybind11::module_& m) {
         .def("get_afd_count_first_config", &ElasticBuffer::get_afd_count_first_config)
         .def("get_afd_sparse_hybrid_config", &ElasticBuffer::get_afd_sparse_hybrid_config)
         .def("get_afd_arrival_words", &ElasticBuffer::get_afd_arrival_words)
-        .def("set_afd_senders", &ElasticBuffer::set_afd_senders)
         .def("barrier", &ElasticBuffer::barrier)
         .def("engram_write", &ElasticBuffer::engram_write)
         .def("engram_fetch", &ElasticBuffer::engram_fetch)

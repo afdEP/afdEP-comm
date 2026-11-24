@@ -37,9 +37,6 @@ public:
         int afd_mixed_ffn_ranks;
         // afdEP silent FFN rails only (afdep_domain_hybrid_combine.cuh, FFN GPUs): f, or 0
         int afd_domain_ffn_ranks;
-        // afdEP sender subset (FFN reply of one NVLink domain): Attention senders [first, first + count), or 0 for all
-        int afd_first_sender;
-        int afd_num_senders;
 
         // Parameters
         nv_bfloat16* x;
@@ -65,10 +62,7 @@ public:
             header_name = "combine";
             const auto afdep_args = args.afd_skip_entry_barrier or args.afd_directed_ffn_ranks > 0 ?
                 fmt::format(", {}, {}, {}{}", args.afd_skip_entry_barrier, args.afd_directed_ffn_ranks,
-                            args.afd_per_cta_exit,
-                            args.afd_num_senders > 0 ? fmt::format(", {}, {}, {}", args.afd_single_ffn_reduce,
-                                                                   args.afd_first_sender, args.afd_num_senders) :
-                            args.afd_single_ffn_reduce ? ", true" : "") : std::string();
+                            args.afd_per_cta_exit, args.afd_single_ffn_reduce ? ", true" : "") : std::string();
             func_name = fmt::format("combine_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}{}>",
                                     args.is_scaleup_nvlink,
                                     args.use_expanded_layout, args.allow_multiple_reduction,
@@ -358,14 +352,7 @@ static void* launch_combine(void* x,
                             const AfdLaunchShape afd_shape = AfdLaunchShape::kShared,
                             const int& afd_mixed_ffn_ranks = 0,
                             const bool& afd_fp8_combine = false,
-                            const int& afd_domain_ffn_ranks = 0,
-                            const int& afd_first_sender = 0,
-                            const int& afd_num_senders = 0) {
-    // afdEP sender subset: only the FFN reply of one NVLink domain with directed exit
-    EP_HOST_ASSERT(afd_num_senders == 0 or
-                   (num_scaleout_ranks == 1 and is_scaleup_nvlink and afd_shape == AfdLaunchShape::kShared and
-                    scaleup_rank_idx < afd_directed_ffn_ranks and afd_first_sender >= 0 and
-                    afd_first_sender + afd_num_senders <= num_scaleup_ranks - afd_directed_ffn_ranks));
+                            const int& afd_domain_ffn_ranks = 0) {
     // afdEP FP8 combine (afdep_suites.hpp): the directional hybrid only
     EP_HOST_ASSERT(not afd_fp8_combine or (num_scaleout_ranks > 1 and afd_ffn_scaleout_ranks > 0 and
                                            afd_mixed_ffn_ranks == 0));
@@ -438,7 +425,6 @@ static void* launch_combine(void* x,
         .afd_ffn_scaleout_ranks = num_scaleout_ranks > 1 ? afd_ffn_scaleout_ranks : 0,
         .afd_mixed_ffn_ranks = num_scaleout_ranks > 1 and afd_ffn_scaleout_ranks == 1 ? afd_mixed_ffn_ranks : 0,
         .afd_domain_ffn_ranks = num_scaleout_ranks > 1 and afd_ffn_scaleout_ranks == 0 ? afd_domain_ffn_ranks : 0,
-        .afd_first_sender = afd_first_sender, .afd_num_senders = afd_num_senders,
         .x = static_cast<nv_bfloat16*>(x),
         .topk_weights = static_cast<float*>(topk_weights),
         .src_metadata = src_metadata,

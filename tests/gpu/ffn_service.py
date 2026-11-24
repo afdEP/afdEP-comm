@@ -3,14 +3,13 @@
 
 Scan kernel only (one GPU, fake arrival counters):
     python -m tests.gpu.ffn_service --kernel
-Every client k is one Attention DP group; equal units share one Buffer with the
-FFN ranks, which receive one unit of it at a time (worker_receive(senders=...)):
+Every client k is one Attention DP group with its own Buffer to the FFN ranks:
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode host
-Two policies for the FFN ranks:
+Two policies for the FFN ranks, over the same Buffers:
     take everyone     --mode static        every unit in turn, waiting for each one
     take first ready  --mode host|device   the first unit whose tokens have arrived
-Uneven units, micro-batches (--dbo) and --manual-buffers use one Buffer per client.
+Equal units get their Buffers from afdep.Units (--manual-buffers builds them here).
 Communication-only evidence: no serving claims.
 """
 
@@ -29,7 +28,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-from afdep import Buffer, Config
+from afdep import Buffer, Config, Units
 from afdep._build import source_digest
 from afdep.service import (
     CHOICE_DONE,
@@ -44,7 +43,6 @@ from tests.gpu.deepep import RECORDED_ENV_PREFIXES, Case, Exchange, verify
 
 EXPERTS_PER_FFN = 4
 SEED = 1234
-COUNT_FIRST_ENV = "AFDEP_COUNT_FIRST_MIN_BUCKET"
 KERNEL_TIMEOUT_NS = 2_000_000
 KERNEL_SENDERS, KERNEL_CTAS = 2, 2
 KERNEL_DEVICE_QUOTA = 40  # several ROUNDS_PER_LAUNCH launches per client
@@ -286,9 +284,7 @@ def fake_clients(count: int):
         torch.zeros(2 * ranks + 3, dtype=torch.int64, device="cuda")
         for _ in range(count)
     ]
-    rows = [
-        [w.data_ptr(), ranks, 1, KERNEL_SENDERS, KERNEL_CTAS, 2 * ranks] for w in words
-    ]
+    rows = [[w.data_ptr(), ranks, 1, KERNEL_SENDERS, KERNEL_CTAS] for w in words]
     return words, rows
 
 
@@ -427,27 +423,18 @@ def serve_layout(args) -> dict:
         raise ValueError("--ffn plus client ranks must equal the world size")
     delays = [int(d) for d in args.delay.split(",")] if args.delay else [0] * len(sizes)
     is_ffn = rank < args.ffn
-    buffers, shared = [], None
+    buffers, held = [], None
     uniform = len({(len(ranks), capacity) for _, ranks, capacity in units}) == 1
-    _, ranks, capacity = units[0]
-    # A sender range needs the count-first receive (afdep_suites.hpp), off by default.
-    count_first = 0 < int(os.environ.get(COUNT_FIRST_ENV, "0")) <= capacity
-    one_buffer = uniform and len(units) == len(sizes) and not args.manual_buffers
-    if one_buffer and (count_first or args.mode == "static"):
-        # Equal units without micro-batches: one Buffer over every unit.
-        shared = Buffer(
-            group=dist.group.WORLD, config=unit_config(args, capacity, sum(sizes))
+    if uniform and len(units) == len(sizes) and not args.manual_buffers:
+        # Equal units without micro-batches: afdep.Units builds one Buffer per unit.
+        _, ranks, capacity = units[0]
+        held = Units(
+            group=dist.group.WORLD,
+            config=unit_config(args, capacity, len(ranks)),
+            units=len(units),
         )
-        # Take Everyone receives the whole Buffer: one client of every unit.
-        whole = is_ffn and args.mode == "static"
-        mine = (
-            [0]
-            if whole
-            else range(len(units))
-            if is_ffn
-            else [(rank - args.ffn) // len(ranks)]
-        )
-        buffers = [(k, shared) for k in mine]
+        mine = range(len(units)) if is_ffn else [(rank - args.ffn) // len(ranks)]
+        buffers = list(zip(mine, held, strict=True))
     else:
         # Every rank creates every group in the same order; members build its Buffer.
         for k, (_, ranks, capacity) in enumerate(units):
@@ -470,20 +457,7 @@ def serve_layout(args) -> dict:
             weights["experts.gate_up"][mine],
             weights["experts.down"][mine],
         )
-    # Take First Ready on the shared Buffer: an FFN exchange serves one unit's ranks.
-    ranged = shared and is_ffn and args.mode != "static"
-    exchanges = [
-        (
-            k,
-            Exchange(
-                b,
-                units[k][2],
-                experts,
-                (units[k][1][0] - args.ffn, len(units[k][1])) if ranged else (0, 0),
-            ),
-        )
-        for k, b in buffers
-    ]
+    exchanges = [(k, Exchange(b, units[k][2], experts)) for k, b in buffers]
     replays = []
     if args.capture and not is_ffn:
         # Every (rank, decode buffer) pair replays its own share of conversations.
@@ -501,9 +475,6 @@ def serve_layout(args) -> dict:
                 )
             )
     plan = cases(units, args.rounds)
-    if shared:  # one plan over every Attention rank of the Buffer
-        every = [(0, list(range(args.ffn, world)), units[0][2])]
-        plan = cases(every, args.rounds) * len(units)
     stream = torch.cuda.Stream()
     stream.wait_stream(torch.cuda.current_stream())
     with torch.cuda.stream(stream):
@@ -527,10 +498,7 @@ def serve_layout(args) -> dict:
     if is_ffn:
         service = None
         if args.mode != "static":
-            rows = [
-                client_row(exchange.buffer, exchange.senders)
-                for _, exchange in exchanges
-            ]
+            rows = [client_row(exchange.buffer) for _, exchange in exchanges]
             service = FfnService(
                 rows,
                 graphs,
@@ -615,8 +583,10 @@ def serve_layout(args) -> dict:
                 record["relative_error_mean"] = errors.mean().item()
                 record["relative_error_max"] = errors.max().item()
     dist.barrier()
-    record["buffers"] = "shared" if shared else "manual"
-    for buffer in [shared] if shared else [b for _, b in buffers]:
+    record["buffers"] = "units" if held else "manual"
+    if held:
+        held.close()
+    for _, buffer in buffers if not held else ():
         buffer.close()
     return record
 
@@ -683,7 +653,7 @@ def main() -> None:
     parser.add_argument(
         "--manual-buffers",
         action="store_true",
-        help="one Buffer per unit even when the units are equal",
+        help="build the Buffers here even when afdep.Units fits the layout",
     )
     parser.add_argument(
         "--leader", action="store_true", help="FFN rank 0 picks, the others follow"

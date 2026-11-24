@@ -76,7 +76,7 @@ SHARED_KERNEL_SHA256 = {
     "dispatch.cuh": (
         "81e189fab1985fba3f8c772ecfe0b2efbfe4618744c0ae0195566ae20326ce6a"
     ),
-    "combine.cuh": "f20cad7c618d8a281357957ff5a5bb3fb927ca524e4d177a8746c5fcebb8301f",
+    "combine.cuh": "8847dfb9b41cc0cb0c971ac0c35ca25d95cacc2443413ca3a6d6b7dcb43a51e1",
     "hybrid_dispatch.cuh": (
         "56ebe2ee6854380fa575881bf53e4a8d9392f7e4bf3ad1510c57b65854d1c313"
     ),
@@ -87,7 +87,7 @@ SHARED_KERNEL_SHA256 = {
         "0b573abeb0dc2bb8d4c65d9a3ce28f82537e129d3dc4cf5e3709dd4e9cbf85cf"
     ),
     "afdep_roles.cuh": (
-        "b4e65dfd3f18cea198441ec8af1de759839373a27ce5687d2d7349435f9ae80a"
+        "4f7ed0d81d7215753c99dfe1364e4ba6e707101cb5ede0d1b139e8b1923e937a"
     ),
 }
 

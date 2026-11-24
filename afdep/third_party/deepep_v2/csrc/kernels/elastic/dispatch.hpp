@@ -125,9 +125,6 @@ public:
         int afd_mixed_ffn_ranks;
         // afdEP silent FFN rails only (afdep_domain_hybrid_dispatch.cuh, FFN GPUs): f, or 0
         int afd_domain_ffn_ranks;
-        // afdEP sender subset (count-first FFN receive only): sources [first, first + count), or 0 senders for all
-        int afd_first_sender;
-        int afd_num_senders;
 
         // Parameters
         void* x; sf_pack_t* sf; topk_idx_t* topk_idx; float* topk_weights;
@@ -452,17 +449,7 @@ using namespace deep_ep::elastic;
 static void __instantiate_kernel() {{
     auto ptr = reinterpret_cast<void*>(&afdep_ffn_stream_dispatch_impl{});
 }}
-)", get_template_args(args));
-    }
-
-    // The sender subset follows kAfdZeroCollectRowBytes, which the shared arguments may omit.
-    static std::string get_template_args(const Args& args) {
-        auto shared = DispatchRuntime::get_direct_template_args(args);
-        if (args.afd_num_senders == 0)
-            return shared;
-        shared.pop_back();
-        return shared + fmt::format("{}, {}, {}>", args.afd_zero_collect_row_bytes > 0 ? "" : ", 0",
-                                    args.afd_first_sender, args.afd_num_senders);
+)", DispatchRuntime::get_direct_template_args(args));
     }
 
     static void launch_impl(const jit::KernelHandle& kernel, const jit::LaunchConfigHandle& config, Args args) {
@@ -520,13 +507,7 @@ static void launch_dispatch(void* x, void* sf,
                             const int afd_ungated_tokens = 0,
                             const bool afd_thread_count = true,
                             const int afd_mixed_ffn_ranks = 0,
-                            const int afd_domain_ffn_ranks = 0,
-                            const int afd_first_sender = 0,
-                            const int afd_num_senders = 0) {
-    // afdEP sender subset: only the count-first FFN receive, whose counts stay on the device
-    EP_HOST_ASSERT(afd_num_senders == 0 or
-                   (afd_shape == AfdLaunchShape::kCountFirst and scaleup_rank_idx < afd_ffn_ranks and not do_cpu_sync and
-                    afd_first_sender >= 0 and afd_first_sender + afd_num_senders <= num_scaleup_ranks - afd_ffn_ranks));
+                            const int afd_domain_ffn_ranks = 0) {
     // Cached mode does not support expert token counting
     if (cached_mode)
         EP_HOST_ASSERT(cumulative_local_expert_recv_stats == nullptr);
@@ -597,7 +578,6 @@ static void launch_dispatch(void* x, void* sf,
         .afd_thread_count = afd_thread_count,
         .afd_mixed_ffn_ranks = num_scaleout_ranks > 1 and afd_ffn_scaleout_ranks == 1 ? afd_mixed_ffn_ranks : 0,
         .afd_domain_ffn_ranks = num_scaleout_ranks > 1 and afd_ffn_scaleout_ranks == 0 ? afd_domain_ffn_ranks : 0,
-        .afd_first_sender = afd_first_sender, .afd_num_senders = afd_num_senders,
         .x = x, .sf = static_cast<sf_pack_t*>(sf), .topk_idx = topk_idx, .topk_weights = topk_weights,
         .copied_topk_idx = copied_topk_idx,
         .cumulative_local_expert_recv_stats = cumulative_local_expert_recv_stats,

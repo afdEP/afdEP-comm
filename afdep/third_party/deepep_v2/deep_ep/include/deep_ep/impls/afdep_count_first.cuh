@@ -15,7 +15,7 @@
 namespace deep_ep::elastic {
 
 // Words, as int64 indices from the directed-exit base (afdep_roles.cuh), whose words occupy only
-// [0, 3 * ranks + 3) (per-sender rounds included) and the order ring at [2064, 3088). The region is zeroed at construction; each scalar word owns a 128-byte line.
+// [0, 2 * ranks + 3). The region is zeroed at construction; each scalar word owns a 128-byte line.
 //   GATE        source  SM0 thread 0 stores the exchange's epoch once the counts are issued
 //   SRC_EPOCH   source  the last CTA (per-CTA exit) commits the epoch every thread read at entry
 //   P           FFN     dispatch CTA 0 releases 1 after the prefix sums; the last claimant clears it
@@ -289,8 +289,7 @@ __device__ __forceinline__ AfdCfSources afdep_cf_load_sources(const layout::Work
         sources.base = rank_psum[kOffset + lane_idx - 1];
         sources.n = rank_psum[kOffset + lane_idx] - sources.base;
         sources.epoch = afdep_cf_ld_relaxed_gpu(afdep_cf_word(workspace, kAfdCfEpochs + lane_idx));
-        EP_DEVICE_ASSERT(sources.n >= 0 and sources.n <= kBucket and
-                         (sources.epoch > 0 or sources.n == 0));  // a sender outside the subset has no epoch yet
+        EP_DEVICE_ASSERT(sources.n >= 0 and sources.n <= kBucket and sources.epoch > 0);
     }
     sources.total = __reduce_add_sync(0xffffffff, sources.n);
     return sources;
