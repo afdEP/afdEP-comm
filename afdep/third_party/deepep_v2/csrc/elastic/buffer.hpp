@@ -1,6 +1,5 @@
 #pragma once
 
-#include <c10/cuda/CUDAGuard.h>
 #include <cuda_runtime.h>
 #include <memory>
 #include <vector>
@@ -847,7 +846,7 @@ public:
             afd_ffn_ranks_per_domain == 0;
         if (afd_role_aware) {
             // afdEP exposes the expanded (expert-major) receive and, in one NVLink domain, the
-            // token-major one (do_expand=false, docs/token-layout.md); cached handles stay off.
+            // token-major one (do_expand=false); cached handles stay off.
             // Roles are immutable constructor geometry, never token-count guesses.
             EP_HOST_ASSERT(not cached_mode);
             EP_HOST_ASSERT(do_expand or (nccl_context->num_scaleout_ranks == 1 and nccl_context->is_scaleup_nvlink));
@@ -1163,10 +1162,7 @@ public:
         // afdEP role suites (afdep_suites.hpp): in one NVLink domain the FFN receive triggers its
         // copy epilogue after the arrival wait (or, count-first, streams it behind the payload);
         // in directional hybrid each role launches only the warp classes it uses.
-        // The streaming epilogue only expands rows into expert slots, so a token-major FFN
-        // receives payload-first, as the source arm does: sources keep the count-first wire,
-        // whose count low halves decode unchanged and whose flags go unread.
-        const bool afd_cf_ffn_stream = afd_count_first and not afd_cf_source_only and do_expand;
+        const bool afd_cf_ffn_stream = afd_count_first and not afd_cf_source_only;
         auto afd_dispatch_shape = AfdLaunchShape::kShared;
         if (afd_count_first and (afd_source or afd_cf_ffn_stream))
             afd_dispatch_shape = AfdLaunchShape::kCountFirst;
@@ -1374,25 +1370,11 @@ public:
                                       num_channels,
                                       do_expand, cached_mode, afd_role_aware and not do_cpu_sync,
                                       comm_stream, afd_role_buffers ? afd_ffn_ranks : 0,
+                                      // Token-major receive: the epilogue writes ID -1 and weight 0
+                                      // where a row carries no route (last argument).
                                       afd_cf_ffn_stream, num_gpu_timeout_cycles,
-                                      afdep_count_first_unit_min_rows(), afdep_count_first_epilogue_sms());
-        }
-
-        // afdEP token-major receive (docs/token-layout.md): rows past the live count (a receive
-        // sized without host counts) and choices of experts held elsewhere carry no route: ID -1,
-        // weight 0. On the communication stream after the copy epilogue, which keeps its PDL
-        // dependency on the dispatch kernel; captured with it, and ordered before the caller's
-        // stream by the event below.
-        if (afd_role_aware and not afd_source and not do_expand) {
-            const c10::cuda::CUDAStreamGuard guard(comm_stream);
-            if (not do_cpu_sync) {
-                const auto live = psum_num_recv_tokens_per_scaleup_rank.slice(
-                    0, nccl_context->num_scaleup_ranks - 1, nccl_context->num_scaleup_ranks);
-                const auto rows = torch::arange(num_allocated_tokens, live.options());
-                recv_topk_idx->masked_fill_(rows.ge(live).unsqueeze(1), -1);
-            }
-            if (recv_topk_weights.has_value())
-                recv_topk_weights->masked_fill_(recv_topk_idx->lt(0), 0);
+                                      afdep_count_first_unit_min_rows(), afdep_count_first_epilogue_sms(),
+                                      afd_role_aware and not do_expand);
         }
 
         // Stream control
@@ -1463,7 +1445,7 @@ public:
         const bool afd_direct_worker = afd_worker and afd_direct;
         if (afd_worker)
             EP_HOST_ASSERT(num_combined_tokens == 0);
-        // afdEP token-major replies (docs/token-layout.md): one NVLink domain only.
+        // afdEP token-major replies: one NVLink domain only.
         EP_HOST_ASSERT(use_expanded_layout or afd_ffn_ranks == 0 or afd_direct);
         const auto [num_scaleup_ranks] = get_shape<1>(psum_num_recv_tokens_per_scaleup_rank);
         EP_HOST_ASSERT(combined_topk_idx.is_cuda() and combined_topk_idx.is_contiguous());

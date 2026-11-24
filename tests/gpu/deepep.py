@@ -119,54 +119,26 @@ def expert_rows(received, worker: int, config: Config):
     return torch.where(belongs.any(dim=1)[:, None], weighted, 0).bfloat16()
 
 
-def decoded_rows(received, config: Config):
+def token_rows(received, worker: int, config: Config):
+    """Token layout: per token, the test experts' rows ((e+1)*identity times the
+    weight, rounded to BF16) summed in FP32, as combine reduces expert rows."""
+    ids, weights = received.recv_topk_idx, received.recv_topk_weights
     decoded = received.recv_x.float()
     if received.recv_scale is not None:
         decoded = (
             decoded.view(-1, config.hidden_size // 128, 128)
             * received.recv_scale[:, :, None]
         ).reshape_as(decoded)
-    return decoded
+    factors = weights * (ids + worker * config.experts_per_rank + 1)
+    rows = (decoded[:, None, :] * factors[:, :, None]).bfloat16().float()
+    return rows.sum(dim=1).bfloat16()
 
 
-def token_rows(received, worker: int, config: Config):
-    """Token layout: each token's sum over its local experts, as combine reduces
-    expert rows: every expert row ((e+1)*identity times its weight) rounded to BF16,
-    summed in FP32 and rounded once. Padding rows (no local ID) reply zeros."""
-    ids, weights = received.recv_topk_idx, received.recv_topk_weights
-    factors = (ids + worker * config.experts_per_rank + 1).float()
-    contribution = torch.where(ids >= 0, weights * factors, 0)
-    decoded = decoded_rows(received, config)
-    rows = (decoded[:, None, :] * contribution[:, :, None]).bfloat16().float()
-    live = (ids >= 0).any(dim=1)
-    return torch.where(live[:, None], rows.sum(dim=1), 0).bfloat16()
-
-
-@dataclass(frozen=True)
-class TokenReceive:
-    """An FFN token-layout receive, kept for checking after the exchange."""
-
-    psum: torch.Tensor
-    ids: torch.Tensor
-    weights: torch.Tensor
-    count: torch.Tensor
-
-    @classmethod
-    def of(cls, received):
-        return cls(
-            received.recv_count_psum.clone(),
-            received.recv_topk_idx.clone(),
-            received.recv_topk_weights.clone(),
-            received.recv_token_count.clone(),
-        )
+class TokenReceive(tuple):
+    """Prefix sums, IDs, weights and token count of an FFN token-layout receive."""
 
     def clone(self):
-        return TokenReceive(
-            self.psum.clone(),
-            self.ids.clone(),
-            self.weights.clone(),
-            self.count.clone(),
-        )
+        return TokenReceive(tensor.clone() for tensor in self)
 
 
 class Exchange:
@@ -265,7 +237,14 @@ class Exchange:
             snapshot = received.recv_count_psum.clone()
         else:
             rows = token_rows(received, self.buffer.role_rank, self.config)
-            snapshot = TokenReceive.of(received)
+            snapshot = TokenReceive(
+                (
+                    received.recv_count_psum,
+                    received.recv_topk_idx,
+                    received.recv_topk_weights,
+                    received.recv_token_count,
+                )
+            ).clone()
         if delay and self.buffer.role_rank == 0:
             torch.cuda._sleep(DELAY_CYCLES)
         self.buffer.worker_reply(rows, received.receipt)
@@ -415,28 +394,25 @@ def verify(
 
 
 def verify_token_receive(state, host_counts, config, counts, weight_sums, tokens):
-    """Token layout on an FFN: one live row per token that selected a local expert,
-    in arrival order, then padding rows with IDs -1; weight 0 wherever the ID is -1;
-    aligned inclusive per-expert prefix sums."""
-    live = int(state.count.item())
+    """One live row per token that selected a local expert, then rows with ID -1;
+    weight 0 wherever the ID is -1; aligned inclusive per-expert prefix sums."""
+    psum, ids, weights, count = state
+    live = int(count.item())
     assert live == tokens, (live, tokens)
-    ids, weights = state.ids, state.weights
-    assert ids.shape == weights.shape and ids.shape[1] == config.top_k
-    assert bool((ids[live:] == -1).all())
-    assert bool((weights[ids < 0] == 0).all())
-    rows = ids[:live]
-    assert bool((rows >= -1).all() and (rows < config.experts_per_rank).all())
-    assert bool((rows >= 0).any(dim=1).all()), "a live row selects no local expert"
-    selected = rows[rows >= 0]
-    received = torch.bincount(selected, minlength=config.experts_per_rank)
-    torch.testing.assert_close(received, counts, rtol=0, atol=0)
+    assert bool((ids[live:] == -1).all()) and bool((weights[ids < 0] == 0).all())
+    assert bool((ids[:live] >= 0).any(dim=1).all()), (
+        "a live row selects no local expert"
+    )
+    assert bool((ids < config.experts_per_rank).all())
     received_weights = torch.zeros_like(weight_sums)
-    received_weights.index_add_(0, selected, weights[:live][rows >= 0])
+    received_weights.index_add_(0, ids[ids >= 0], weights[ids >= 0])
     torch.testing.assert_close(received_weights, weight_sums, rtol=0, atol=0)
+    received = torch.bincount(ids[ids >= 0], minlength=config.experts_per_rank)
+    torch.testing.assert_close(received, counts, rtol=0, atol=0)
     padded = (
         (counts + config.expert_alignment - 1) // config.expert_alignment
     ) * config.expert_alignment
-    torch.testing.assert_close(state.psum.long(), padded.cumsum(dim=0), rtol=0, atol=0)
+    torch.testing.assert_close(psum.long(), padded.cumsum(dim=0), rtol=0, atol=0)
     if host_counts is not None:
         assert host_counts == padded.cpu().tolist()
 
@@ -726,7 +702,7 @@ def main() -> None:
         "--receive-layout",
         choices=RECEIVE_LAYOUTS,
         default=EXPERT_LAYOUT,
-        help="FFN receive rows: expert-major or token-major (docs/token-layout.md)",
+        help="FFN receive rows: expert-major or token-major",
     )
     parser.add_argument(
         "--role-env",

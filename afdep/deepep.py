@@ -33,7 +33,7 @@ DEFAULT_COMM_SM_FRACTION = 24 / 132
 HYBRID_DEFAULT_QPS = 129
 DIRECT_DEFAULT_QPS = 17
 INT32_MAX = (1 << 31) - 1
-# FFN receive layouts (docs/token-layout.md): one row per (token, local expert),
+# FFN receive layouts: one row per (token, local expert),
 # grouped by expert, or one row per received token with its local expert IDs.
 EXPERT_LAYOUT, TOKEN_LAYOUT = "expert", "token"
 RECEIVE_LAYOUTS = (EXPERT_LAYOUT, TOKEN_LAYOUT)
@@ -72,7 +72,7 @@ class Config:
     FFN ranks are ranks [0, ffn_ranks), or with ``ffn_ranks_per_domain`` f the first
     f ranks of each of the ffn_ranks / f NVLink domains (see ``per_domain_layout``).
     ``receive_layout`` selects the FFN receive rows: ``"expert"`` (expert-major) or
-    ``"token"`` (token-major, one NVLink domain only; docs/token-layout.md).
+    ``"token"`` (token-major, one NVLink domain only).
     """
 
     capacity_tokens_per_rank: int
@@ -590,7 +590,7 @@ class ElasticBuffer:
 
         ``expand=True`` is DeepEP's expanded (expert-major) receive. ``expand=False``
         receives one row per token with its local expert IDs (AFD transport only,
-        one NVLink domain; docs/token-layout.md). Every rank passes the same value.
+        one NVLink domain). Every rank passes the same value.
         """
         self._check_live()
         if self._pending is not None:
@@ -829,7 +829,7 @@ class Buffer:
         elif self.physical_domain[0] > 1:
             error = (
                 "receive_layout='token' is validated in one NVLink domain only; "
-                f"found {self.physical_domain[0]} domains (docs/token-layout.md)"
+                f"found {self.physical_domain[0]} domains"
             )
         if error is not None:
             self.transport.close()
