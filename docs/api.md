@@ -22,7 +22,7 @@ on graph replay. All payload tensors are on the selected CUDA device.
 | Operation | Contract |
 |---|---|
 | `source_dispatch(x, ids, weights, x_scale=None, *, bucket, read_host_counts=False)` | Attention: contiguous `x [T,H]`, IDs/FP32 weights `[T,K]`, `T ≤ bucket ≤ capacity` |
-| `worker_receive(*, bucket, read_host_counts=False)` | FFN: expert-major rows, weights, device expert prefix sums and opaque receipt |
+| `worker_receive(*, bucket, read_host_counts=False, senders=(0, 0))` | FFN: expert-major rows, weights, device expert prefix sums and opaque receipt. `senders=(first, count)` receives only that range of Attention ranks (index 0 is the first Attention rank), and the next `worker_reply` answers the same range. Ranges need the count-first receive (`AFDEP_COUNT_FIRST_MIN_BUCKET`, off by default) of one NVLink domain without host counts; a Buffer is received either always whole or always by ranges |
 | `worker_reply(rows, receipt)` | FFN: contiguous BF16 `[receive_rows,H]`, routing weight applied exactly once |
 | `source_collect(*, view=False)` | Attention: BF16 `[T,H]` summed over selected experts, in original token order |
 

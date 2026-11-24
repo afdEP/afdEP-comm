@@ -35,6 +35,7 @@ ROUNDS_PER_BODY = 4  # unrolled rounds per WHILE iteration; divides ROUNDS_PER_L
 # Arrival base, Buffer ranks, first sender, senders, arrivals per sender, and the
 # dispatch round at reset (written by reset).
 CLIENT_WORDS = 6
+SENDER_ROUNDS = 3  # afdep_roles.cuh: per-sender round words follow 2 * ranks + 3
 STATE_LAST, STATE_ROUNDS, STATE_TOTAL, STATE_SERVED = 0, 1, 2, 3
 CONTROL_STOP, CONTROL_CHOICE = 0, 1
 DEFAULT_TIMEOUT_NS = 30_000_000_000
@@ -86,8 +87,12 @@ def _load_scan():
     return module, _ok(driver.cuModuleGetFunction(module, b"afdep_ffn_scan"))
 
 
-def client_row(buffer: Buffer) -> list[int]:
-    """The scan's view of one client Buffer on this FFN rank (5 words)."""
+def client_row(buffer: Buffer, senders: tuple[int, int] = (0, 0)) -> list[int]:
+    """The scan's view of one client on this FFN rank, then its round word index.
+
+    A client is a whole Buffer, or Attention ranks ``senders=(first, count)`` of a
+    shared Buffer (served with ``worker_receive(senders=senders)``).
+    """
     if buffer.role != "ffn":
         raise ValueError("FfnService runs on FFN ranks")
     base, directed, per_cta, _ = buffer.transport._runtime.get_afd_arrival_words()
@@ -95,7 +100,16 @@ def client_row(buffer: Buffer) -> list[int]:
         raise ValueError("FfnService needs the directed exit of one NVLink domain")
     c = buffer.config
     ctas = buffer.transport._resolved_num_sms if per_cta else 1
-    return [base, c.world_size, c.ffn_ranks, c.attention_ranks, ctas]
+    first, count = senders
+    if not count:
+        whole = [base, c.world_size, c.ffn_ranks, c.attention_ranks, ctas]
+        return [*whole, 2 * c.world_size]
+    if first < 0 or count < 0 or first + count > c.attention_ranks:
+        raise ValueError("senders are not Attention ranks of this Buffer")
+    # Every sender of the range advances with the first one's round word, which
+    # afdep_sender_round_ptr indexes by the sender's rank.
+    round_word = 2 * c.world_size + SENDER_ROUNDS + c.ffn_ranks + first
+    return [base, c.world_size, c.ffn_ranks + first, count, ctas, round_word]
 
 
 def order_ring(buffer: Buffer) -> tuple[int, int, int]:
@@ -138,7 +152,7 @@ class FfnService:
         self.stream = stream or torch.cuda.Stream()
         self.rows = rows
         self.clients = torch.tensor(
-            [[*row, 0] for row in rows], dtype=torch.int64, device="cuda"
+            [[*row[:5], 0] for row in rows], dtype=torch.int64, device="cuda"
         )
         self.state = torch.zeros(
             STATE_SERVED + len(graphs), dtype=torch.int32, device="cuda"
@@ -161,11 +175,11 @@ class FfnService:
         self.control.zero_()
         if self.order[0] and not self.order[2]:  # the leader's ring
             _ok(driver.cuMemsetD32(self.order[0], 0, 2 * ORDER_WORDS))
-        for c, (base, ranks, *_) in enumerate(self.rows):  # dispatch round word
+        for c, (base, *_, round_word) in enumerate(self.rows):  # dispatch round word
             _ok(
                 driver.cuMemcpyDtoD(
                     self.clients.data_ptr() + (c * CLIENT_WORDS + 5) * 8,
-                    base + 2 * ranks * 8,
+                    base + round_word * 8,
                     8,
                 )
             )

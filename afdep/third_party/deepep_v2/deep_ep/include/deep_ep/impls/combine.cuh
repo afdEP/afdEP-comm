@@ -29,6 +29,8 @@ template <bool kIsScaleupNVLink,
           bool kAfdPerCtaExit = false,
           // afdEP: with one FFN rank, every token's top-k rows are local, so all kNumTopk slots are valid.
           bool kAfdSingleFfnReduce = false,
+          // afdEP: an FFN rank replies to Attention senders [first, first + count) only; 0 senders: all.
+          int kAfdFirstSender = 0, int kAfdNumSenders = 0,
           int kNumThreads = kNumWarps * 32,
           int kNumHiddenBytes = kHidden * sizeof(nv_bfloat16),
           bool kUseRankLayout = use_rank_layout<kAllowMultipleReduction, kNumRanks, kNumTopk>(),
@@ -248,10 +250,13 @@ combine_impl(nv_bfloat16* x,
     EP_STATIC_ASSERT(not kAfdPerCtaExit or kAfdDirectedFfnRanks > 0, "Per-CTA exit requires directed exit");
     if constexpr (kAfdDirectedFfnRanks > 0) {
         EP_STATIC_ASSERT(kIsScaleupNVLink, "Directed exit requires one NVLink domain");
+        EP_STATIC_ASSERT(kAfdFirstSender >= 0 and kAfdNumSenders >= 0 and
+                         kAfdFirstSender + kAfdNumSenders <= kNumRanks - kAfdDirectedFfnRanks, "Invalid sender subset");
         // FFN ranks publish reply arrival to Attention ranks, which send nothing.
         if (rank_idx < kAfdDirectedFfnRanks) {
             afdep_signal_receivers<kNumRanks, team_t, kAfdPerCtaExit>(gin, workspace_layout, kAfdepCombinePhase, rank_idx,
-                                                      kAfdDirectedFfnRanks, kNumRanks - kAfdDirectedFfnRanks,
+                                                      kAfdDirectedFfnRanks + kAfdFirstSender,
+                                                      kAfdNumSenders > 0 ? kAfdNumSenders : kNumRanks - kAfdDirectedFfnRanks,
                                                       sm_idx, thread_idx);
         } else {
             afdep_wait_senders<kNumRanks, kNumTimeoutCycles, kAfdPerCtaExit ? kNumSMs : 1>(

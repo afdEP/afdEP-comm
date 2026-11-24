@@ -40,6 +40,8 @@ template <bool kIsScaleupNVLink,
           // afdEP single-FFN collect view: the combine row stride (bytes) of rows to zero for tokens
           // with no valid route, which no FFN rank writes. 0 disables.
           int kAfdZeroCollectRowBytes = 0,
+          // afdEP: receive from sources [first, first + count) only (relative to kAfdFfnRanks); 0 senders: all
+          int kAfdFirstSender = 0, int kAfdNumSenders = 0,
           int kNumNotifyThreads = kNumNotifyWarps * 32,
           int kNumDispatchThreads = kNumDispatchWarps * 32,
           int kNumThreads = kNumNotifyThreads + kNumDispatchThreads,
@@ -265,6 +267,11 @@ afdep_ffn_stream_dispatch_impl(
             for (int i = thread_idx; (not kAfdDirectionalNotify or not afd_source) and i < kNumIncomingCountElems;
                  i += kNumNotifyThreads) {
                 const int index = incoming_count_index(i);
+                // afdEP sender subset: other sources' counts stay unread for their own receive
+                const int afd_sender = i < kNumSourceRanks ? i : (i - kNumSourceRanks) / kNumExpertsPerRank;
+                if (kAfdNumSenders > 0 and (afd_sender < kAfdFirstSender or
+                                            afd_sender >= kAfdFirstSender + kAfdNumSenders))
+                    continue;
                 comm::timeout_while<kNumTimeoutCycles>([=](const bool& is_last_check) {
                     // NOTES: the global memory type has 64 bits
                     const auto afd_word = ptx::ld_volatile<int64_t>(
@@ -525,9 +532,11 @@ afdep_ffn_stream_dispatch_impl(
             afdep_signal_receivers<kNumRanks, team_t, kAfdPerCtaExit>(gin, workspace_layout, kAfdepDispatchPhase, rank_idx,
                                                       0, kAfdFfnRanks, sm_idx, thread_idx);
         } else {
-            afdep_wait_senders<kNumRanks, kNumTimeoutCycles, kAfdPerCtaExit ? kNumSMs : 1>(
-                workspace_layout, kAfdepDispatchPhase, rank_idx,
-                                                              kAfdFfnRanks, kNumSourceRanks, sm_idx, thread_idx);
+            EP_STATIC_ASSERT(kAfdFirstSender >= 0 and kAfdNumSenders >= 0 and
+                             kAfdFirstSender + kAfdNumSenders <= kNumSourceRanks, "Invalid sender subset");
+            afdep_wait_senders<kNumRanks, kNumTimeoutCycles, kAfdPerCtaExit ? kNumSMs : 1, (kAfdNumSenders > 0)>(
+                workspace_layout, kAfdepDispatchPhase, rank_idx, kAfdFfnRanks + kAfdFirstSender,
+                kAfdNumSenders > 0 ? kAfdNumSenders : kNumSourceRanks, sm_idx, thread_idx);
         }
     } else {
         comm::gpu_barrier<kIsScaleupNVLink, 1, kNumRanks,

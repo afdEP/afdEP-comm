@@ -327,6 +327,43 @@ FFN_STREAM_DISPATCH_EDITS = (
         "    // afdEP count-first: CTA 0's notify warps triggered after the count wait"
         "\n\n    // Clean atomic counters\n",
     ),
+    # Sender subset: one shared Buffer serves its Attention units one at a time.
+    (
+        "          int kAfdZeroCollectRowBytes = 0,\n",
+        "          int kAfdZeroCollectRowBytes = 0,\n"
+        "          // afdEP: receive from sources [first, first + count) only "
+        "(relative to kAfdFfnRanks); 0 senders: all\n"
+        "          int kAfdFirstSender = 0, int kAfdNumSenders = 0,\n",
+    ),
+    (
+        "                const int index = incoming_count_index(i);\n",
+        "                const int index = incoming_count_index(i);\n"
+        "                // afdEP sender subset: other sources' counts stay unread "
+        "for their own receive\n"
+        "                const int afd_sender = i < kNumSourceRanks ? i : "
+        "(i - kNumSourceRanks) / kNumExpertsPerRank;\n"
+        "                if (kAfdNumSenders > 0 and (afd_sender < kAfdFirstSender or\n"
+        "                                            afd_sender >= kAfdFirstSender + "
+        "kAfdNumSenders))\n"
+        "                    continue;\n",
+    ),
+    (
+        "            afdep_wait_senders<kNumRanks, kNumTimeoutCycles, "
+        "kAfdPerCtaExit ? kNumSMs : 1>(\n"
+        "                workspace_layout, kAfdepDispatchPhase, rank_idx,\n"
+        "                                                              "
+        "kAfdFfnRanks, kNumSourceRanks, sm_idx, thread_idx);\n",
+        "            EP_STATIC_ASSERT(kAfdFirstSender >= 0 and "
+        "kAfdNumSenders >= 0 and\n"
+        "                             kAfdFirstSender + kAfdNumSenders <= "
+        'kNumSourceRanks, "Invalid sender subset");\n'
+        "            afdep_wait_senders<kNumRanks, kNumTimeoutCycles, "
+        "kAfdPerCtaExit ? kNumSMs : 1, (kAfdNumSenders > 0)>(\n"
+        "                workspace_layout, kAfdepDispatchPhase, rank_idx, "
+        "kAfdFfnRanks + kAfdFirstSender,\n"
+        "                kAfdNumSenders > 0 ? kAfdNumSenders : kNumSourceRanks, "
+        "sm_idx, thread_idx);\n",
+    ),
 )
 
 # FFN copy epilogue: wait on P, then claim units of rows that each wait on their flag.

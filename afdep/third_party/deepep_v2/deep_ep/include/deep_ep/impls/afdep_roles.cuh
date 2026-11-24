@@ -36,6 +36,17 @@ __device__ __forceinline__ int64_t* afdep_round_ptr(const layout::WorkspaceLayou
     return workspace.get_scaleout_channel_signaled_tail_ptr(0, 0) + 2 * kNumRanks + phase;
 }
 
+// Sender subset (FFN service on one shared Buffer): one dispatch round word per sender, so an FFN
+// rank may receive the units of one Buffer in any order. The words end below the order ring of
+// afdep/service.py (ORDER_BASE). A Buffer is received either always whole or always by subsets.
+constexpr int kAfdepSenderRoundEnd = 2064;
+
+template <int kNumRanks>
+__device__ __forceinline__ int64_t* afdep_sender_round_ptr(const layout::WorkspaceLayout& workspace, const int sender) {
+    EP_STATIC_ASSERT(3 * kNumRanks + 3 <= kAfdepSenderRoundEnd, "Sender round words overlap the order ring");
+    return workspace.get_scaleout_channel_signaled_tail_ptr(0, 0) + 2 * kNumRanks + 3 + sender;
+}
+
 template <int kNumRanks, typename team_t, bool kPerCta = false>
 __device__ __forceinline__ void afdep_signal_receivers(const handle::NCCLGin& gin,
                                                        const layout::WorkspaceLayout& workspace,
@@ -61,15 +72,18 @@ __device__ __forceinline__ void afdep_signal_receivers(const handle::NCCLGin& gi
 }
 
 // kNumSenderCtas: arrivals per sender per round (its grid size with per-CTA release, else 1).
-template <int kNumRanks, int64_t kNumTimeoutCycles, int kNumSenderCtas = 1>
+// kPerSenderRound: count rounds per sender (afdep_sender_round_ptr) instead of per phase.
+template <int kNumRanks, int64_t kNumTimeoutCycles, int kNumSenderCtas = 1, bool kPerSenderRound = false>
 __device__ __forceinline__ void afdep_wait_senders(const layout::WorkspaceLayout& workspace,
                                                    const int phase, const int rank_idx,
                                                    const int first_sender, const int num_senders,
                                                    const int sm_idx, const int thread_idx) {
     if (sm_idx != 0 or thread_idx != 0)
         return;
-    const int64_t target = (++ *afdep_round_ptr<kNumRanks>(workspace, phase)) * kNumSenderCtas;
+    int64_t target = kPerSenderRound ? 0 : (++ *afdep_round_ptr<kNumRanks>(workspace, phase)) * kNumSenderCtas;
     for (int sender = first_sender; sender < first_sender + num_senders; ++ sender) {
+        if constexpr (kPerSenderRound)
+            target = (++ *afdep_sender_round_ptr<kNumRanks>(workspace, sender)) * kNumSenderCtas;
         comm::timeout_while<kNumTimeoutCycles>([=](const bool& is_last_check) {
             const auto arrived = ptx::ld_acquire_sys(afdep_arrival_ptr<kNumRanks>(workspace, phase, sender));
             if (arrived >= target)
