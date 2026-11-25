@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WIDTH, HEIGHT = 1240, 990
+WIDTH, HEIGHT = 1240, 900
 FONT = "system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 LIGHT = dict(
@@ -93,25 +93,14 @@ def draw(c: dict[str, str]) -> str:
     box(0, 0, WIDTH, HEIGHT, "bg", "bg", 0)
     text(20, 36, "What an FFN GPU receives: expert layout or token layout", 24,
          weight=700)  # fmt: skip
-    text(
-        20, 79,
-        "A = 2 Attention GPUs  |  bucket = 2 tokens per Attention GPU at most  |  "
-        "K = top_k = 3  |  E = 4 experts per FFN GPU  |  H = hidden size",
-        12, "sub", mono=True,
-    )  # fmt: skip
-    text(
-        20, 59,
-        "Example: 2 Attention GPUs send 4 tokens, each picks top_k = 3 of 8 experts. "
-        "FFN GPU 0 holds experts 0-3, FFN GPU 1 holds experts 4-7.",
-        14, "sub",
-    )  # fmt: skip
+    out.append('<g transform="translate(0,-34)">')
 
     # 1. Dispatch.
     panel(20, 86, 1200, 184, "1  Attention GPUs dispatch",
           "source_dispatch(x, topk_ids, topk_weights)")  # fmt: skip
     y0 = 148
     text(132, y0 - 8, "token", 12, "sub")
-    text(212, y0 - 8, "top-3 experts : weight", 12, "sub")
+    text(212, y0 - 8, f"top_k = {TOP_K} experts : weight", 12, "sub")
     box(760, 136, 190, 46, "cell", "blue", 8, 2)
     text(855, 156, "FFN GPU 0", 14, weight=700, anchor="middle")
     text(855, 174, "experts 0-3", 12, "sub", anchor="middle")
@@ -125,6 +114,7 @@ def draw(c: dict[str, str]) -> str:
         fill = f"t{token}" if to_zero else "other"
         if row % BUCKET == 0:
             text(40, y + 16.5, f"Attention {source}", 12, "sub")
+            text(40, y + ROW + 14, f"bucket = {BUCKET}", 11, "sub")
         cell(132, y, f"t{token}", fill, 60)
         for k, (expert, weight) in enumerate(zip(ids, weights, strict=True)):
             cell(212 + k * 82, y, f"e{expert} : {weight:.1f}",
@@ -141,11 +131,15 @@ def draw(c: dict[str, str]) -> str:
             )
     arrow(748, 159, 758, "blue")
     arrow(748, 227, 758)
-    text(980, 152, "A token travels once to each FFN GPU", 13)
-    text(980, 171, "that holds one of its experts,", 13)
-    text(980, 190, "with all 3 IDs and weights.", 13)
-    text(980, 224, "t1 picks only experts 4-7:", 13, "sub")
-    text(980, 243, "FFN GPU 0 never receives it.", 13, "sub")
+    text(748, 130, f"once per FFN GPU: x + {TOP_K} IDs + {TOP_K} weights", 12, "blue",
+         anchor="end")  # fmt: skip
+    text(748, 264, f"t1: all {TOP_K} experts on FFN GPU 1", 12, "sub", anchor="end")
+    for y, zero in ((147, True), (215, False)):
+        got = [t for t, _, ids, _ in TOKENS if any(local(e) == zero for e in ids)]
+        arrow(954, y + 12, 972)
+        text(980, y + 16.5, "receives", 12, "sub")
+        for i, token in enumerate(got):
+            cell(1040 + i * 44, y, f"t{token}", f"t{token}" if zero else "other")
 
     rows = sorted(
         (expert, token, weight)
@@ -162,9 +156,8 @@ def draw(c: dict[str, str]) -> str:
     allocated = SOURCES * BUCKET
 
     # 2a. Expert layout.
-    panel(20, 286, 590, 344, "2a  Expert layout (default)", 'receive_layout="expert"')
-    text(40, 336, "One row per (token, expert): a token is copied for each of its "
-         "local experts.", 13, "sub")  # fmt: skip
+    panel(20, 286, 590, 318, "2a  Expert layout (default)", 'receive_layout="expert"')
+    text(40, 336, "One row per (token, local expert): tokens are copied", 13, "sub")
     x0, y0 = 84, 376
     text(x0, y0 - 8, "recv_x", 12, "sub", mono=True)
     text(x0 + 100, y0 - 8, "weight", 12, "sub", mono=True)
@@ -191,17 +184,15 @@ def draw(c: dict[str, str]) -> str:
     text(x0 + 386, y0 + 60, "expert block", 12, "sub")
     text(40, 546, "rows", 13, weight=700)
     text(100, 546, f"{len(rows)} here, at most {expert_bound}", 13)
-    text(260, 546, "align(A*bucket*min(K, E) + (align-1)*E)", 12, "sub", mono=True)
+    text(260, 546, f"= {SOURCES} Attention GPUs x {BUCKET} tokens x "
+         f"{min(TOP_K, EXPERTS)} experts", 12, "sub")  # fmt: skip
     text(40, 572, "shapes", 13, weight=700)
-    text(100, 572, f"recv_x [{len(rows)}, H]   recv_topk_weights [{len(rows)}]   "
+    text(100, 572, f"recv_x [{len(rows)}, hidden]   recv_topk_weights [{len(rows)}]   "
          "recv_topk_idx None", 12, mono=True)  # fmt: skip
-    text(40, 598, "reply", 13, weight=700)
-    text(100, 598, f"{len(rows)} rows, one per (token, expert)", 13)
 
     # 2b. Token layout.
-    panel(630, 286, 590, 344, "2b  Token layout", 'receive_layout="token"')
-    text(650, 336, "One row per token, no copies: the IDs name the local experts "
-         "to run.", 13, "sub")  # fmt: skip
+    panel(630, 286, 590, 318, "2b  Token layout", 'receive_layout="token"')
+    text(650, 336, "One row per token: the IDs name its local experts", 13, "sub")
     x0 = 650
     text(x0, y0 - 8, "recv_x", 12, "sub", mono=True)
     text(x0 + 92, y0 - 8, "recv_topk_idx", 12, "sub", mono=True)
@@ -245,16 +236,13 @@ def draw(c: dict[str, str]) -> str:
          "expert on another GPU, or unused row", 13)  # fmt: skip
     text(650, 546, "rows", 13, weight=700)
     text(710, 546, f"{len(live)} here, at most {allocated}", 13)
-    text(870, 546, "A*bucket", 12, "sub", mono=True)
-    text(950, 546, "recv_count_psum", 12, "sub", mono=True)
-    for e, value in enumerate(psum):
-        cell(1068 + e * 28, 529, str(value), w=26)
+    text(870, 546, f"= {SOURCES} Attention GPUs x {BUCKET} tokens", 12, "sub")
     text(650, 572, "shapes", 13, weight=700)
-    text(710, 572, f"recv_x [{allocated}, H]   recv_topk_idx [{allocated}, K]   "
-         f"recv_topk_weights [{allocated}, K]", 12, mono=True)  # fmt: skip
-    text(650, 598, "reply", 13, weight=700)
-    text(710, 598, f"{allocated} rows, one per token, summed over its local experts",
-         13)  # fmt: skip
+    text(710, 572, f"recv_x [{allocated}, hidden]   recv_topk_idx [{allocated}, "
+         f"{TOP_K}]   recv_topk_weights [{allocated}, {TOP_K}]", 12,
+         mono=True)  # fmt: skip
+
+    out.append('</g><g transform="translate(0,-60)">')
 
     # 3. Collect.
     box(20, 644, 1200, 40, "panel", "panel", 14)
@@ -264,7 +252,7 @@ def draw(c: dict[str, str]) -> str:
          anchor="end", mono=True)  # fmt: skip
 
     # Who writes -1 and 0.
-    panel(20, 700, 590, 270, "Token layout: who writes -1 and 0",
+    panel(20, 700, 590, 240, "Token layout: who writes -1 and 0",
           "dispatch_copy_epilogue.cuh")  # fmt: skip
     token, _, ids, weights = TOKENS[0]
     x0 = 190
@@ -288,16 +276,15 @@ def draw(c: dict[str, str]) -> str:
         f'<path d="M{x0 + 176},786 V824 M{x0 + 172},818 L{x0 + 176},824 '
         f'L{x0 + 180},818" fill="none" stroke="{c["orange"]}" stroke-width="2"/>'
     )
-    text(x0 + 190, 810, "copy kernel, kAfdTokenRoutes", 12, "orange", 700, mono=True)
-    text(40, 890, "ID       local ? ID - first local ID : -1", 12, mono=True)
-    text(40, 912, "weight   ID = -1 ? 0 : weight", 12, mono=True)
-    text(40, 934, "rows from recv_token_count to A*bucket: every ID -1, weight 0",
-         12, mono=True)  # fmt: skip
-    text(40, 956, "Copy kernel: moves arrived tokens from the network buffer "
-         "into recv_x.", 13, "sub")  # fmt: skip
+    text(x0 + 190, 802, "copy kernel, kAfdTokenRoutes", 12, "orange", 700, mono=True)
+    text(x0 + 190, 818, "network buffer -> recv_x", 12, "sub", mono=True)
+    text(x0 + 92, 876, "local: ID - first local ID", 11, "sub")
+    text(x0 + 92, 892, "else: -1", 11, "orange")
+    text(x0 + 228, 876, "kept where ID is local", 11, "sub")
+    text(x0 + 228, 892, "else: 0", 11, "orange")
 
     # Count-first and support.
-    panel(630, 700, 590, 270, "When the copy kernel runs",
+    panel(630, 700, 590, 240, "When the copy kernel runs",
           "AFDEP_COUNT_FIRST_MIN_BUCKET")  # fmt: skip
     for index, (label, first) in enumerate(
         (("payload-first", False), ("count-first", True))
@@ -305,34 +292,33 @@ def draw(c: dict[str, str]) -> str:
         y = 742 + index * 44
         text(650, y + 16.5, label, 13, weight=700)
         cell(760, y, "counts", "other", 60)
-        cell(824, y, "payload arrives", "t2", 230)
+        cell(824, y, "payload arrives", "t2", 200)
         if first:
-            cell(824, y + ROW - 2, "copy kernel, row by row", "cell", 240, "orange")
+            cell(824, y + ROW - 2, "copy each row on arrival", "cell", 200, "orange")
         else:
-            cell(1058, y, "copy kernel", "cell", 140, "orange")
-    text(650, 846, "Payload-first copies after every row arrived; count-first "
-         "copies each row as it arrives.", 13, "sub")  # fmt: skip
+            cell(1028, y, "copy after all rows", "cell", 170, "orange")
     heads = ("", "1 NVLink domain", "count-first", "several domains", "FP8 replies")
     table = (
         ("expert", "yes", "yes", "yes", "yes"),
-        ("token", "yes", "yes", "rejected", "rejected"),
+        ("token", "yes", "yes", "rejected", "BF16 instead"),
     )
     widths = (70, 125, 120, 125, 110)
     for r, line in enumerate((heads, *table)):
         x = 650
         for value, width in zip(line, widths, strict=True):
-            y = 862 + r * 28
+            y = 850 + r * 28
             if r == 0:
                 text(x + width / 2, y + 16.5, value, 12, "sub", anchor="middle")
             elif x == 650:
                 text(x, y + 16.5, value, 12, weight=700, mono=True)
             elif value == "yes":
                 cell(x + 2, y, value, "t3", width - 4)
+            elif value != "rejected":
+                cell(x + 2, y, value, "other", width - 4)
             else:
                 cell(x + 2, y, value, "cell", width - 4, "orange", "orange")
             x += width
-    text(650, 958, "Several domains: no run exists yet for the token layout.", 13,
-         "sub")  # fmt: skip
+    out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
