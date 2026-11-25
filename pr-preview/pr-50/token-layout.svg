@@ -5,7 +5,7 @@
 <text x="20" y="36" font-size="24" font-weight="700" fill="#0b0b0b" text-anchor="start">What an FFN GPU receives: expert layout or token layout</text>
 <g transform="translate(0,-34)">
 <rect x="20" y="86" width="1200" height="184" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
-<text x="38" y="114" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">1  Attention GPUs dispatch</text>
+<text x="38" y="114" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">Attention GPUs dispatch</text>
 <text x="1202" y="114" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">source_dispatch(x, topk_ids, topk_weights)</text>
 <text x="132" y="140" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">token</text>
 <text x="212" y="140" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">top_k = 3 experts : weight</text>
@@ -81,8 +81,8 @@
 <rect x="1172" y="215" width="40" height="24" rx="3" fill="#e1e0d9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="1192.0" y="231.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">t3</text>
 <rect x="20" y="286" width="590" height="318" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
-<text x="38" y="314" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">2a  Expert layout (default)</text>
-<text x="592" y="314" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">receive_layout="expert"</text>
+<text x="38" y="314" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">Expert layout - what FFN GPU 0 receives</text>
+<text x="592" y="314" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">receive_layout="expert" (default)</text>
 <text x="40" y="336" font-size="13" font-weight="400" fill="#52514e" text-anchor="start">One row per (token, local expert): tokens are copied</text>
 <text x="84" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_x</text>
 <text x="184" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">weight</text>
@@ -143,17 +143,23 @@
 <text x="40" y="572" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">shapes</text>
 <text x="100" y="572" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_x [5, hidden]   recv_topk_weights [5]   recv_topk_idx None</text>
 <rect x="630" y="286" width="590" height="318" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
-<text x="648" y="314" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">2b  Token layout</text>
+<text x="648" y="314" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">Token layout - what FFN GPU 0 receives</text>
 <text x="1202" y="314" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">receive_layout="token"</text>
-<text x="650" y="336" font-size="13" font-weight="400" fill="#52514e" text-anchor="start">One row per token: the IDs name its local experts</text>
-<text x="650" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_x</text>
-<text x="742" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_idx</text>
-<text x="878" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_weights</text>
-<text x="1056" y="368" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">worker_reply rows</text>
+<text x="650" y="336" font-size="13" font-weight="400" fill="#52514e" text-anchor="start">One row per token; columns = its 3 chosen experts (top_k), not GPUs</text>
+<text x="650" y="356" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_x</text>
+<text x="742" y="356" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_idx</text>
+<text x="878" y="356" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_weights</text>
+<text x="1056" y="356" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">worker_reply rows</text>
+<text x="762" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">1st</text>
+<text x="898" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">1st</text>
+<text x="804" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">2nd</text>
+<text x="940" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">2nd</text>
+<text x="846" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">3rd</text>
+<text x="982" y="371" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">3rd</text>
 <rect x="650" y="376" width="80" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="690.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x(t0)</text>
 <rect x="742" y="376" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="762.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<text x="762.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e1</text>
 <rect x="878" y="376" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="898.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.5</text>
 <rect x="784" y="376" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
@@ -161,7 +167,7 @@
 <rect x="920" y="376" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
 <text x="940.0" y="392.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
 <rect x="826" y="376" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="846.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2</text>
+<text x="846.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e2</text>
 <rect x="962" y="376" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="982.0" y="392.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.2</text>
 <rect x="1056" y="376" width="150" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
@@ -169,11 +175,11 @@
 <rect x="650" y="402" width="80" height="24" rx="3" fill="#d6e6fa" stroke="#c3c2b7" stroke-width="1"/>
 <text x="690.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x(t2)</text>
 <rect x="742" y="402" width="40" height="24" rx="3" fill="#d6e6fa" stroke="#c3c2b7" stroke-width="1"/>
-<text x="762.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="762.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e0</text>
 <rect x="878" y="402" width="40" height="24" rx="3" fill="#d6e6fa" stroke="#c3c2b7" stroke-width="1"/>
 <text x="898.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.6</text>
 <rect x="784" y="402" width="40" height="24" rx="3" fill="#d6e6fa" stroke="#c3c2b7" stroke-width="1"/>
-<text x="804.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<text x="804.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e1</text>
 <rect x="920" y="402" width="40" height="24" rx="3" fill="#d6e6fa" stroke="#c3c2b7" stroke-width="1"/>
 <text x="940.0" y="418.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.3</text>
 <rect x="826" y="402" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
@@ -185,7 +191,7 @@
 <rect x="650" y="428" width="80" height="24" rx="3" fill="#d5ecd4" stroke="#c3c2b7" stroke-width="1"/>
 <text x="690.0" y="444.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x(t3)</text>
 <rect x="742" y="428" width="40" height="24" rx="3" fill="#d5ecd4" stroke="#c3c2b7" stroke-width="1"/>
-<text x="762.0" y="444.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">3</text>
+<text x="762.0" y="444.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e3</text>
 <rect x="878" y="428" width="40" height="24" rx="3" fill="#d5ecd4" stroke="#c3c2b7" stroke-width="1"/>
 <text x="898.0" y="444.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.7</text>
 <rect x="784" y="428" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
@@ -217,12 +223,13 @@
 <path d="M1008,415.0 H1044 M1044,411.0 L1050,415.0 L1044,419.0" fill="none" stroke="#52514e" stroke-width="1.5"/>
 <text x="1029" y="405.0" font-size="12" font-weight="400" fill="#52514e" text-anchor="middle">MLPs</text>
 <path d="M642,453 H1210" stroke="#eb6834" stroke-width="1.5" stroke-dasharray="5 3"/>
-<text x="1056" y="498" font-size="12" font-weight="700" fill="#eb6834" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_token_count = 3</text>
+<text x="1206" y="490" font-size="11" font-weight="700" fill="#eb6834" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_token_count = 3</text>
 <rect x="650" y="500" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
 <text x="670.0" y="516.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">-1</text>
 <rect x="692" y="500" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
 <text x="712.0" y="516.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
-<text x="742" y="517" font-size="13" font-weight="400" fill="#0b0b0b" text-anchor="start">expert on another GPU, or unused row</text>
+<text x="742" y="509" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="start">ID -1, weight 0 = skip: expert is on another GPU, or row is unused</text>
+<text x="742" y="525" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">e.g. t0 chose e1, e5, e2; e5 is on FFN GPU 1, which runs it</text>
 <text x="650" y="546" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">rows</text>
 <text x="710" y="546" font-size="13" font-weight="400" fill="#0b0b0b" text-anchor="start">3 here, at most 4</text>
 <text x="870" y="546" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">= 2 Attention GPUs x 2 tokens</text>
@@ -230,7 +237,7 @@
 <text x="710" y="572" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_x [4, hidden]   recv_topk_idx [4, 3]   recv_topk_weights [4, 3]</text>
 </g><g transform="translate(0,-60)">
 <rect x="20" y="644" width="1200" height="40" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
-<text x="38" y="669" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">3  Attention GPUs sum each token's reply rows from all FFN GPUs</text>
+<text x="38" y="669" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">Attention GPUs sum each token's reply rows from all FFN GPUs</text>
 <text x="1202" y="669" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">source_collect(): same output in both layouts</text>
 <rect x="20" y="700" width="590" height="240" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
 <text x="38" y="728" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">Token layout: who writes -1 and 0</text>
@@ -238,43 +245,60 @@
 <text x="190" y="750" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x</text>
 <text x="282" y="750" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">IDs, global</text>
 <text x="418" y="750" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">weights</text>
-<text x="40" y="774.5" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">t0 on the wire</text>
+<text x="40" y="774.5" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">t0 as sent</text>
 <rect x="190" y="758" width="80" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="230.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x(t0)</text>
-<text x="40" y="848.5" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">t0 on FFN GPU 0</text>
-<rect x="190" y="832" width="80" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="230.0" y="848.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">x(t0)</text>
 <rect x="282" y="758" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="302.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<text x="302.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e1</text>
 <rect x="418" y="758" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="438.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.5</text>
-<rect x="282" y="832" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="302.0" y="848.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
-<rect x="418" y="832" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="438.0" y="848.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.5</text>
 <rect x="324" y="758" width="40" height="24" rx="3" fill="#e1e0d9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="344.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">5</text>
+<text x="344.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e5</text>
 <rect x="460" y="758" width="40" height="24" rx="3" fill="#e1e0d9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="480.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.3</text>
-<rect x="324" y="832" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
-<text x="344.0" y="848.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">-1</text>
-<rect x="460" y="832" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
-<text x="480.0" y="848.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
 <rect x="366" y="758" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="386.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2</text>
+<text x="386.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">e2</text>
 <rect x="502" y="758" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
 <text x="522.0" y="774.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.2</text>
-<rect x="366" y="832" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="386.0" y="848.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2</text>
-<rect x="502" y="832" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
-<text x="522.0" y="848.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.2</text>
-<path d="M366,786 V824 M362,818 L366,824 L370,818" fill="none" stroke="#eb6834" stroke-width="2"/>
-<text x="380" y="802" font-size="12" font-weight="700" fill="#eb6834" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy kernel, kAfdTokenRoutes</text>
-<text x="380" y="818" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">network buffer -> recv_x</text>
-<text x="282" y="876" font-size="11" font-weight="400" fill="#52514e" text-anchor="start">local: ID - first local ID</text>
-<text x="282" y="892" font-size="11" font-weight="400" fill="#eb6834" text-anchor="start">else: -1</text>
-<text x="418" y="876" font-size="11" font-weight="400" fill="#52514e" text-anchor="start">kept where ID is local</text>
-<text x="418" y="892" font-size="11" font-weight="400" fill="#eb6834" text-anchor="start">else: 0</text>
+<path d="M316,786 V804 M171,832 V804 H461 V832 M167,826 L171,832 L175,826 M457,826 L461,832 L465,826" fill="none" stroke="#eb6834" stroke-width="2"/>
+<text x="326" y="798" font-size="12" font-weight="700" fill="#eb6834" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy kernel, kAfdTokenRoutes</text>
+<text x="40" y="850" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">FFN GPU 0</text>
+<text x="120" y="850" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">experts 0-3</text>
+<text x="40" y="868" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_idx</text>
+<text x="176" y="868" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_weights</text>
+<rect x="40" y="874" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="60.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<rect x="176" y="874" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="196.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.5</text>
+<text x="60" y="909" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">= e1</text>
+<rect x="82" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="102.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">-1</text>
+<rect x="218" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="238.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<rect x="124" y="874" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="144.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2</text>
+<rect x="260" y="874" width="40" height="24" rx="3" fill="#fbd9c9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="280.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.2</text>
+<text x="144" y="909" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">= e2</text>
+<text x="330" y="850" font-size="13" font-weight="700" fill="#0b0b0b" text-anchor="start">FFN GPU 1</text>
+<text x="410" y="850" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">experts 4-7</text>
+<text x="330" y="868" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_idx</text>
+<text x="466" y="868" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_weights</text>
+<rect x="330" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="350.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">-1</text>
+<rect x="466" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="486.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<rect x="372" y="874" width="40" height="24" rx="3" fill="#e1e0d9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="392.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1</text>
+<rect x="508" y="874" width="40" height="24" rx="3" fill="#e1e0d9" stroke="#c3c2b7" stroke-width="1"/>
+<text x="528.0" y="890.5" font-size="12" font-weight="400" fill="#0b0b0b" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.3</text>
+<text x="392" y="909" font-size="10" font-weight="400" fill="#52514e" text-anchor="middle">= e5</text>
+<rect x="414" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="434.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">-1</text>
+<rect x="550" y="874" width="40" height="24" rx="3" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
+<text x="570.0" y="890.5" font-size="12" font-weight="400" fill="#eb6834" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0</text>
+<text x="40" y="928" font-size="12" font-weight="400" fill="#52514e" text-anchor="start">local expert: stored as ID - first local ID</text>
+<text x="330" y="928" font-size="12" font-weight="400" fill="#eb6834" text-anchor="start">expert on another GPU: ID -1, weight 0</text>
 <rect x="630" y="700" width="590" height="240" rx="14" fill="#f6f2ee" stroke="#f6f2ee" stroke-width="1"/>
 <text x="648" y="728" font-size="16" font-weight="700" fill="#0b0b0b" text-anchor="start">When the copy kernel runs</text>
 <text x="1202" y="728" font-size="12" font-weight="400" fill="#52514e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">AFDEP_COUNT_FIRST_MIN_BUCKET</text>
