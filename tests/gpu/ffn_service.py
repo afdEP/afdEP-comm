@@ -7,7 +7,7 @@ Every client k is one Attention DP group with its own Buffer to the FFN ranks:
     torchrun --standalone --nproc-per-node=4 -m tests.gpu.ffn_service \
         --ffn 2 --clients 1,1 --mode host
 Two policies for the FFN ranks, over the same Buffers:
-    take everyone     --mode static        every unit in turn, waiting for each one
+    take everyone     --mode static        every unit in one round, waiting for all
     take first ready  --mode host|device   the first unit whose tokens have arrived
 Equal units get their Buffers from afdep.Units (--manual-buffers builds them here).
 Communication-only evidence: no serving claims.
@@ -277,6 +277,119 @@ def experts_check() -> dict:
     return {"relative_error": error}
 
 
+def merge_rows(ends, real_rows, align):
+    """Indices that merge K receives into one expert-major layout.
+
+    ``ends[k]`` is receive k's ``recv_count_psum`` and ``real_rows[k]`` bounds its
+    valid rows. Returns per receive (source row, merged row, valid) of static size
+    ``real_rows[k]``, and the merged ``recv_count_psum``. In expert e's merged
+    group the rows of receive k follow those of the receives before it.
+    """
+    ends = [e.long() for e in ends]
+    starts = [
+        torch.cat((e.new_zeros(1), (e[:-1] + align - 1) // align * align)) for e in ends
+    ]
+    counts = torch.stack([e - s for e, s in zip(ends, starts, strict=True)])
+    earlier = counts.cumsum(0) - counts
+    padded = (counts.sum(0) + align - 1) // align * align
+    merged_starts = padded.cumsum(0) - padded
+    index = []
+    for k, start in enumerate(starts):
+        psum = counts[k].cumsum(0)
+        j = torch.arange(real_rows[k], device=psum.device)
+        expert = torch.searchsorted(psum, j, right=True).clamp(max=len(psum) - 1)
+        within = j - (psum[expert] - counts[k][expert])
+        index.append(
+            (
+                start[expert] + within,
+                merged_starts[expert] + earlier[k][expert] + within,
+                j < psum[-1],
+            )
+        )
+    return index, (merged_starts + counts.sum(0)).int()
+
+
+def merged_pass(exchanges, experts) -> None:
+    """Take Everyone over several Buffers: receive all, one expert pass, reply all.
+
+    Ceiling: the rows are copied into the merged layout and back, about 5-8% of a
+    round at 1024 tokens per rank. A receive that writes several Buffers into one
+    layout would remove the copies.
+    """
+    received = [exchange.start() for exchange in exchanges]
+    real_rows = [
+        e.config.attention_ranks
+        * e.rows
+        * min(e.config.top_k, e.config.experts_per_rank)
+        for e in exchanges
+    ]
+    index, psum = merge_rows(
+        [r.recv_count_psum for r in received], real_rows, experts.align
+    )
+    experts_per_rank = len(psum)
+    total = sum(real_rows) + (experts.align - 1) * experts_per_rank
+    total = -(-total // experts.align) * experts.align
+    # Row ``total`` collects the unused indices; Experts zeroes it as padding.
+    x = torch.empty(
+        (total + 1, received[0].recv_x.shape[1]), dtype=torch.bfloat16, device="cuda"
+    )
+    weights = torch.empty(total + 1, device="cuda")
+    for r, (source, merged, valid) in zip(received, index, strict=True):
+        merged = torch.where(valid, merged, total)
+        rows, row_weights = r.recv_x, r.recv_topk_weights
+        if experts.align > 1:  # without padding the valid rows are already a prefix
+            source = source.clamp(max=len(rows) - 1)
+            rows, row_weights = rows.index_select(0, source), row_weights[source]
+        x.index_copy_(0, merged, rows)
+        weights.index_copy_(0, merged, row_weights)
+    out = experts(
+        SimpleNamespace(
+            recv_x=x, recv_scale=None, recv_topk_weights=weights, recv_count_psum=psum
+        )
+    )
+    for exchange, r, (source, merged, valid) in zip(
+        exchanges, received, index, strict=True
+    ):
+        reply = out.index_select(0, torch.where(valid, merged, total))
+        if experts.align > 1:  # padding rows of a reply are unspecified
+            rows = r.recv_x.shape[0]
+            padded = torch.empty(
+                (rows + 1, out.shape[1]), dtype=out.dtype, device="cuda"
+            )
+            reply = padded.index_copy_(0, torch.where(valid, source, rows), reply)[
+                :rows
+            ]
+        exchange.buffer.worker_reply(reply, r.receipt)
+
+
+def merge_check() -> dict:
+    """merge_rows against a per-expert loop on uneven receives."""
+    align, real_rows = 4, [9, 6, 5]
+    counts = [[3, 0, 5, 1], [0, 0, 6, 0], [2, 1, 0, 2]]
+    ends = []
+    for row in counts:
+        end, psum = 0, []
+        for c in row:
+            end = -(-end // align) * align + c
+            psum.append(end)
+        ends.append(torch.tensor(psum, dtype=torch.int32))
+    index, psum = merge_rows(ends, real_rows, align)
+    want_psum, want, end = [], [[] for _ in counts], 0
+    for e in range(len(counts[0])):
+        end = -(-end // align) * align
+        for k, row in enumerate(counts):
+            start = -(-(ends[k][e - 1].item() if e else 0) // align) * align
+            want[k] += [(start + i, end + i) for i in range(row[e])]
+            end += row[e]
+        want_psum.append(end)
+    assert psum.tolist() == want_psum, (psum, want_psum)
+    for (source, merged, valid), pairs in zip(index, want, strict=True):
+        got = list(zip(source[valid].tolist(), merged[valid].tolist(), strict=True))
+        assert got == pairs, (got, pairs)
+        assert int(valid.sum()) == len(pairs)
+    return {"merged_rows": want_psum[-1]}
+
+
 def fake_clients(count: int):
     """Arrival words of a role-path Buffer with one FFN rank and two senders."""
     ranks = 1 + KERNEL_SENDERS
@@ -487,11 +600,24 @@ def serve_layout(args) -> dict:
                 exchange.run()
     torch.cuda.synchronize()
     graphs, outputs = [], []
-    for _, exchange in exchanges:
-        graph = torch.cuda.CUDAGraph(keep_graph=args.mode == "device")
+    if is_ffn and experts and args.mode == "static" and len(exchanges) > 1:
+        # Take Everyone: one graph serves every Buffer, with one expert pass for
+        # micro-batch i of all units (a unit sends i + 1 after the reply to i).
+        per_unit = [
+            [exchange for k, exchange in exchanges if units[k][0] == unit]
+            for unit in range(len(sizes))
+        ]
+        graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
-            outputs.append(exchange.run()[0])
+            for batch in itertools.zip_longest(*per_unit):
+                merged_pass([e for e in batch if e is not None], experts)
         graphs.append(graph)
+    else:
+        for _, exchange in exchanges:
+            graph = torch.cuda.CUDAGraph(keep_graph=args.mode == "device")
+            with torch.cuda.graph(graph, stream=stream):
+                outputs.append(exchange.run()[0])
+            graphs.append(graph)
     torch.cuda.synchronize()
     dist.barrier()
     record = {"rank": rank}
@@ -516,8 +642,8 @@ def serve_layout(args) -> dict:
                 for _ in range(args.rounds):
                     for graph in graphs:
                         graph.replay()
-            choice, served = CHOICE_DONE, [args.rounds] * len(graphs)
-            order = list(range(len(graphs))) * args.rounds
+            choice, served = CHOICE_DONE, [args.rounds] * len(exchanges)
+            order = list(range(len(exchanges))) * args.rounds
         else:
             choice = getattr(service, f"serve_{args.mode}")()
             served, order = service.served()
@@ -525,7 +651,7 @@ def serve_layout(args) -> dict:
         record.update(wall_s=time.perf_counter() - start, choice=choice, served=served)
         record["order"] = order
         assert choice == CHOICE_DONE, f"FFN rank {rank}: choice {choice}"
-        assert served == [args.rounds] * len(graphs), served
+        assert served == [args.rounds] * len(exchanges), served
         if service is not None:
             service.close()
     else:
@@ -674,7 +800,12 @@ def main() -> None:
     if args.kernel:
         print(
             json.dumps(
-                {**base, "kernel": kernel_checks(), "experts": experts_check()},
+                {
+                    **base,
+                    "kernel": kernel_checks(),
+                    "experts": experts_check(),
+                    "merge": merge_check(),
+                },
                 indent=2,
             )
         )
