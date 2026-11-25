@@ -505,19 +505,19 @@ def test_role_worker_dispatches_empty_and_preserves_receipt(runtime):
 DISPATCH_EXPAND, COMBINE_EXPANDED = 23, 17
 
 
-def test_token_layout_configuration_and_receive_bounds():
-    expert, token = config(), config(receive_layout="token")
+def test_token_major_layout_configuration_and_receive_bounds():
+    expert, token = config(), config(receive_layout="token-major")
     assert expert.expanded and not token.expanded
     # One row per token from each of the two Attention sources.
     assert token.receive_rows(8) == 2 * 8 < expert.receive_rows(8)
     with pytest.raises(ValueError, match="receive_layout"):
-        config(receive_layout="rank")
+        config(receive_layout="token")
 
 
-@pytest.mark.parametrize("layout", ["expert", "token"])
+@pytest.mark.parametrize("layout", ["expert-major", "token-major"])
 def test_receive_layout_selects_the_native_flags(runtime, layout):
     runtime.group.rank = lambda: 0
-    expanded = layout == "expert"
+    expanded = layout == "expert-major"
     buffer = deepep.DeepEPBuffer(
         group=runtime.group, config=config(receive_layout=layout)
     )
@@ -530,16 +530,18 @@ def test_receive_layout_selects_the_native_flags(runtime, layout):
     assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is expanded
 
 
-def test_token_layout_is_rejected_across_nvlink_domains(runtime, monkeypatch):
+def test_token_major_layout_is_rejected_across_nvlink_domains(runtime, monkeypatch):
     monkeypatch.delenv("EP_DISABLE_GIN", raising=False)
     runtime.module.get_physical_domain_size.return_value = (2, 2)
     with pytest.raises(ValueError, match="one NVLink domain"):
-        deepep.DeepEPBuffer(group=runtime.group, config=config(receive_layout="token"))
+        deepep.DeepEPBuffer(
+            group=runtime.group, config=config(receive_layout="token-major")
+        )
     runtime.native.destroy.assert_called_once()
     runtime.module.destroy_nccl_comm.assert_called_once_with(17)
 
 
-def test_token_layout_requires_the_afd_transport(runtime):
+def test_token_major_layout_requires_the_afd_transport(runtime):
     x, ids, weights = Tensor((2, 256)), Tensor((2, 16), "i64"), Tensor((2, 16), "fp32")
     with pytest.raises(ValueError, match="AFD transport"):
         elastic(runtime).dispatch(

@@ -120,7 +120,7 @@ def expert_rows(received, worker: int, config: Config):
 
 
 def token_rows(received, worker: int, config: Config):
-    """Token layout: per token, the test experts' rows ((e+1)*identity times the
+    """Token-major layout: per token, the test experts' rows ((e+1)*identity times the
     weight, rounded to BF16) summed in FP32, as combine reduces expert rows."""
     ids, weights = received.recv_topk_idx, received.recv_topk_weights
     decoded = received.recv_x.float()
@@ -135,7 +135,7 @@ def token_rows(received, worker: int, config: Config):
 
 
 class TokenReceive(tuple):
-    """Prefix sums, IDs, weights and token count of an FFN token-layout receive."""
+    """Prefix sums, IDs, weights and token count of an FFN token-major receive."""
 
     def clone(self):
         return TokenReceive(tensor.clone() for tensor in self)

@@ -35,7 +35,7 @@ DIRECT_DEFAULT_QPS = 17
 INT32_MAX = (1 << 31) - 1
 # FFN receive layouts: one row per (token, local expert),
 # grouped by expert, or one row per received token with its local expert IDs.
-EXPERT_LAYOUT, TOKEN_LAYOUT = "expert", "token"
+EXPERT_LAYOUT, TOKEN_LAYOUT = "expert-major", "token-major"
 RECEIVE_LAYOUTS = (EXPERT_LAYOUT, TOKEN_LAYOUT)
 # Several Buffers in one process each need a communication stream of their own.
 # The native runtime reads this when a Buffer is constructed. ``Lanes`` sets it
@@ -71,8 +71,8 @@ class Config:
 
     FFN ranks are ranks [0, ffn_ranks), or with ``ffn_ranks_per_domain`` f the first
     f ranks of each of the ffn_ranks / f NVLink domains (see ``per_domain_layout``).
-    ``receive_layout`` selects the FFN receive rows: ``"expert"`` (expert-major) or
-    ``"token"`` (token-major, one NVLink domain only).
+    ``receive_layout`` selects the FFN receive rows: ``"expert-major"`` or
+    ``"token-major"`` (one NVLink domain only).
     """
 
     capacity_tokens_per_rank: int
@@ -90,7 +90,7 @@ class Config:
     cpu_timeout_s: int = 120
     gpu_timeout_s: int = 120
     ffn_ranks_per_domain: int = 0
-    receive_layout: Literal["expert", "token"] = EXPERT_LAYOUT
+    receive_layout: Literal["expert-major", "token-major"] = EXPERT_LAYOUT
 
     def __post_init__(self) -> None:
         for name in (
@@ -128,7 +128,7 @@ class Config:
         if self.payload not in {"bf16", "fp8"}:
             raise ValueError("payload must be 'bf16' or 'fp8'")
         if self.receive_layout not in RECEIVE_LAYOUTS:
-            raise ValueError("receive_layout must be 'expert' or 'token'")
+            raise ValueError("receive_layout must be 'expert-major' or 'token-major'")
         if (
             self.world_size > MAX_RANKS
             or self.logical_experts > MAX_LOGICAL_EXPERTS
@@ -229,9 +229,9 @@ class DispatchHandle:
 class ReceiveResult:
     """FFN receive rows, routing and device prefix sums; padding is unspecified.
 
-    Expert layout (``expanded``): one row per (token, local expert), grouped by
+    Expert-major layout (``expanded``): one row per (token, local expert), grouped by
     expert; ``recv_topk_weights`` is ``[rows]`` and ``recv_topk_idx`` is None.
-    Token layout: one row per received token; ``recv_topk_idx`` holds its local
+    Token-major layout: one row per received token; ``recv_topk_idx`` holds its local
     expert IDs (``-1``: held elsewhere, and every slot of a padding row) and
     ``recv_topk_weights`` its ``[rows, top_k]`` weights, 0 where the ID is -1.
     """
@@ -256,8 +256,8 @@ class ReceiveResult:
     def recv_token_count(self) -> torch.Tensor:
         """Device ``[1]`` int32 count of received tokens (read-only receipt view).
 
-        In token layout rows ``[0, count)`` are live; in expert layout it counts
-        the tokens before expansion.
+        In token-major layout rows ``[0, count)`` are live; in expert-major layout
+        it counts the tokens before expansion.
         """
         psum = self.handle.psum_num_recv_tokens_per_scaleup_rank
         last = psum.shape[0]
@@ -825,10 +825,10 @@ class Buffer:
             return
         error = None
         if self.transport.ffn_ranks is None:
-            error = "receive_layout='token' requires the AFD transport"
+            error = "receive_layout='token-major' requires the AFD transport"
         elif self.physical_domain[0] > 1:
             error = (
-                "receive_layout='token' is validated in one NVLink domain only; "
+                "receive_layout='token-major' is validated in one NVLink domain only; "
                 f"found {self.physical_domain[0]} domains"
             )
         if error is not None:
@@ -968,8 +968,8 @@ class Buffer:
     def worker_reply(self, rows: torch.Tensor, receipt: DispatchHandle) -> None:
         """Reply with BF16 rows weighted exactly once by recv_topk_weights.
 
-        Expert layout: one row per expert row. Token layout: one row per received
-        token, the sum of its local experts' weighted outputs; padding rows are
+        Expert-major layout: one row per expert row. Token-major layout: one row per
+        received token, the sum of its local experts' weighted outputs; padding rows are
         ignored.
         """
         self._check_role("ffn")
