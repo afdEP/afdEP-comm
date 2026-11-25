@@ -321,7 +321,7 @@ def draw(c: dict[str, str]) -> str:
              "several domains", "FP8 replies")  # fmt: skip
     table = (
         ("expert layout", "yes", "yes", "yes", "yes"),
-        ("token layout", "yes", "yes", "no: error", "no: BF16"),
+        ("token layout", "yes", "yes", "yes", "no: BF16"),
     )
     widths = (104, 112, 104, 124, 106)
     for r, line in enumerate((heads, *table)):
@@ -336,10 +336,8 @@ def draw(c: dict[str, str]) -> str:
                 text(x, y + 16.5, value, 12, weight=700)
             elif value == "yes":
                 cell(x + 2, y, value, "t3", width - 4)
-            elif "error" not in value:
-                cell(x + 2, y, value, "other", width - 4)
             else:
-                cell(x + 2, y, value, "cell", width - 4, "orange", "orange")
+                cell(x + 2, y, value, "other", width - 4)
             x += width
 
     # Across NVLink domains: how t0 reaches both FFN GPUs.

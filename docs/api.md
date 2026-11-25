@@ -28,7 +28,8 @@ on graph replay. All payload tensors are on the selected CUDA device.
 
 `Config(receive_layout="token")` gives the FFN one row per token, with local expert
 IDs (`recv_topk_idx`, `-1` for a choice on another rank) and `[rows, top_k]` weights,
-instead of expert-major rows. It runs in one NVLink domain with BF16 replies.
+instead of expert-major rows. Its replies are BF16; it runs in one NVLink domain and
+across domains ([Wire token](#wire-token)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/token-layout-dark.svg">
