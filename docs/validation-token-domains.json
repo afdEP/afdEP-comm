@@ -1,0 +1,158 @@
+{
+ "date": "2026-11-24",
+ "change": "receive_layout='token' across NVLink domains: the two one-domain host checks and the Python check are removed; kernels are unchanged because the wire token already carries every top-k ID and weight",
+ "afdep_comm_version": "1.2.1",
+ "native_source_sha256": "07cbe81583f3a11765494f0adf289fe69133eae1d632984461eae86ff587fc6b",
+ "hardware": "2 pods x 2 H100 80GB, two NVLink domains joined by InfiniBand GIN, physical_domain [2, 2]",
+ "layout": "2 Attention + 2 FFN ranks; default: both FFN ranks in one domain; --ffn-ranks-per-domain 1: one FFN rank in each domain",
+ "suite": "python -m tests.gpu.deepep (communication only: eager and CUDA graphs, empty and skewed routes, changing graph inputs, delayed peers, buffer reuse)",
+ "runs": {
+  "bf16-hybrid": {
+   "args": [
+    "--receive-layout",
+    "token"
+   ],
+   "ok": true,
+   "log_sha256": "4e36d09d98d149acbf30be09d19de3f9035defc768b7ebfd73f82b74036b2a75"
+  },
+  "bf16-hybrid-k8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--top-k",
+    "8"
+   ],
+   "ok": true,
+   "log_sha256": "930cb8c7ac8abeeb69fdeb3481effc7d019e0639e9ca9f0d9c960c74ae5f6dd4"
+  },
+  "fp8-hybrid": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--payload",
+    "fp8"
+   ],
+   "ok": true,
+   "log_sha256": "d338eee77e288cb12f5350332ed5bfc16628b94ba0837c1eebabbeabdf444f12"
+  },
+  "bf16-direct": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--hybrid",
+    "off"
+   ],
+   "ok": true,
+   "log_sha256": "8682f7d236fa9b91401460701e4ea8203e71dd5b5ac5c78640e1083b5875c121"
+  },
+  "fp8-direct-k8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--hybrid",
+    "off",
+    "--payload",
+    "fp8",
+    "--top-k",
+    "8"
+   ],
+   "ok": true,
+   "log_sha256": "359533a41807b8db57affcd92fb1652d17948237b8be8ceb07195c42cf13171b"
+  },
+  "bf16-cap64-k8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--capacity",
+    "64",
+    "--top-k",
+    "8"
+   ],
+   "ok": true,
+   "log_sha256": "3e7c8f4b698b1118800163958ec31d44982b2a4cc322e9b3f736feadc0165fec"
+  },
+  "bf16-lanes2": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--lanes",
+    "2"
+   ],
+   "ok": true,
+   "log_sha256": "5186a73222672e36ac8bc2cb5223fdde9e749e4212b018e8ae287bbfccb7453d"
+  },
+  "pd-bf16": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--ffn-ranks-per-domain",
+    "1"
+   ],
+   "ok": true,
+   "log_sha256": "67aff6c14ce7936c8d39ff4315337bcb72d126821adf50a03a6dfb69cd939047"
+  },
+  "pd-bf16-k8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--ffn-ranks-per-domain",
+    "1",
+    "--top-k",
+    "8"
+   ],
+   "ok": true,
+   "log_sha256": "2d60e1abb698615b8ce583cf7f1306b7c2b7253df71079278382a2b9a9e61427"
+  },
+  "pd-fp8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--ffn-ranks-per-domain",
+    "1",
+    "--payload",
+    "fp8"
+   ],
+   "ok": true,
+   "log_sha256": "76c9059d72fe15a2ca78fe11beb2bf2d1154dc007558e142526cc024d66ed93d"
+  },
+  "pd-direct": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--ffn-ranks-per-domain",
+    "1",
+    "--hybrid",
+    "off"
+   ],
+   "ok": true,
+   "log_sha256": "96bf181a262617aa412bf9fa84879224e07daf1c8d0ea85ac724555ecb55be16"
+  },
+  "pd-lanes2-k8": {
+   "args": [
+    "--receive-layout",
+    "token",
+    "--ffn-ranks-per-domain",
+    "1",
+    "--lanes",
+    "2",
+    "--top-k",
+    "8"
+   ],
+   "ok": true,
+   "log_sha256": "3c965f5b9eba50367f6cb6b6ca1bb37a32f4caf7884122b14fd31637250d7861"
+  },
+  "expert-ref": {
+   "args": [
+    "--receive-layout",
+    "expert"
+   ],
+   "ok": true,
+   "log_sha256": "60277ada646b7d486692bc290c16ad9591cf207b0186a71b279184838af357e0"
+  }
+ },
+ "not_validated": [
+  "three or more NVLink domains with the token layout",
+  "FP8 replies with the token layout (rejected at construction)",
+  "performance"
+ ]
+}

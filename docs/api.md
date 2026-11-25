@@ -123,6 +123,26 @@ receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
 lanes and choosing this order belong to the caller. The GPU suite runs this order
 eagerly on per-lane streams and as one captured graph (`--lanes 2`).
 
+## Wire token
+
+Every dispatched token travels in one fixed record, identical for both receive layouts,
+for hybrid and direct transport, and for any number of NVLink domains:
+
+| Field | Size |
+|---|---|
+| activations | `H` bytes (FP8) or `2H` bytes (BF16) |
+| FP8 scales | 4 bytes per scale pack of the caller's scale tensor, absent for BF16 |
+| top-k expert IDs, DeepEP's logical numbering | `K` x int32 |
+| top-k weights | `K` x float32 |
+| source token index and `K` reply links | `(1 + K)` x int32 |
+
+Each field is padded to DeepEP's TMA alignment (`layout::TokenLayout`). A token is sent once
+per destination FFN rank, with all `K` IDs and weights. The receiving rank's copy kernel alone
+builds the rows: `Config(receive_layout="expert")` writes one row per local expert hit,
+`"token"` one row per token with the IDs of other ranks set to `-1`. The token layout
+therefore runs across NVLink domains as well; its replies stay BF16, and construction
+rejects `AFDEP_HYBRID_FP8_COMBINE` with it across domains.
+
 ## Transport and tuning
 
 afdEP-comm keeps DeepEP's uniform logical expert numbering (Attention ranks own empty

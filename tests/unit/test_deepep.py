@@ -530,11 +530,24 @@ def test_receive_layout_selects_the_native_flags(runtime, layout):
     assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is expanded
 
 
-def test_token_layout_is_rejected_across_nvlink_domains(runtime, monkeypatch):
+def test_token_layout_across_nvlink_domains_rejects_fp8_replies(runtime, monkeypatch):
     monkeypatch.delenv("EP_DISABLE_GIN", raising=False)
     runtime.module.get_physical_domain_size.return_value = (2, 2)
-    with pytest.raises(ValueError, match="one NVLink domain"):
-        deepep.DeepEPBuffer(group=runtime.group, config=config(receive_layout="token"))
+    token = config(receive_layout="token")
+    assert deepep.DeepEPBuffer(group=runtime.group, config=token).fp8_combine is False
+    runtime.native.destroy.reset_mock()
+    runtime.module.destroy_nccl_comm.reset_mock()
+    runtime.native.get_afd_sparse_hybrid_config.return_value = (
+        0,
+        True,
+        True,
+        0,
+        True,
+        64,
+        0,
+    )
+    with pytest.raises(ValueError, match="replies are BF16 across NVLink domains"):
+        deepep.DeepEPBuffer(group=runtime.group, config=token)
     runtime.native.destroy.assert_called_once()
     runtime.module.destroy_nccl_comm.assert_called_once_with(17)
 

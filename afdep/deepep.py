@@ -72,7 +72,7 @@ class Config:
     FFN ranks are ranks [0, ffn_ranks), or with ``ffn_ranks_per_domain`` f the first
     f ranks of each of the ffn_ranks / f NVLink domains (see ``per_domain_layout``).
     ``receive_layout`` selects the FFN receive rows: ``"expert"`` (expert-major) or
-    ``"token"`` (token-major, one NVLink domain only).
+    ``"token"`` (token-major; replies stay BF16).
     """
 
     capacity_tokens_per_rank: int
@@ -589,8 +589,8 @@ class ElasticBuffer:
         """Dispatch; retain the handle through combine.
 
         ``expand=True`` is DeepEP's expanded (expert-major) receive. ``expand=False``
-        receives one row per token with its local expert IDs (AFD transport only,
-        one NVLink domain). Every rank passes the same value.
+        receives one row per token with its local expert IDs (AFD transport only).
+        Every rank passes the same value.
         """
         self._check_live()
         if self._pending is not None:
@@ -816,9 +816,9 @@ class Buffer:
         )
 
     def _check_receive_layout(self) -> None:
-        """Token-major receive runs on the AFD transport in one NVLink domain.
+        """Token-major receive runs on the AFD transport with BF16 replies.
 
-        Every rank sees the same transport and physical domain, so every rank
+        Every rank sees the same transport and reply format, so every rank
         closes (a collective) and raises together.
         """
         if self.config.expanded:
@@ -826,10 +826,10 @@ class Buffer:
         error = None
         if self.transport.ffn_ranks is None:
             error = "receive_layout='token' requires the AFD transport"
-        elif self.physical_domain[0] > 1:
+        elif self.physical_domain[0] > 1 and self.transport.fp8_combine:
             error = (
-                "receive_layout='token' is validated in one NVLink domain only; "
-                f"found {self.physical_domain[0]} domains"
+                "receive_layout='token' replies are BF16 across NVLink domains; "
+                "unset AFDEP_HYBRID_FP8_COMBINE"
             )
         if error is not None:
             self.transport.close()
