@@ -3,7 +3,12 @@ message: "If you use afdEP-comm, please cite it and the projects it builds on, D
 title: afdEP-comm
 type: software
 authors:
-  - name: afdEP-comm contributors
+  - family-names: Etelis
+    given-names: Itay
+  - family-names: Tavor
+    given-names: Almog
+  - family-names: Kat
+    given-names: Ronen
 version: 1.2.1
 license:
   - Apache-2.0

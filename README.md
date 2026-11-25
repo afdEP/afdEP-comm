@@ -378,6 +378,21 @@ RDMA hop per token
 ([direct record](docs/validation-direct-per-domain.json)); nodes with different GPU counts are not
 supported.
 
+## Citation
+
+If you use afdEP-comm, please cite it. The three authors contributed equally.
+
+```bibtex
+@misc{afdepcomm2026,
+  title        = {afdEP-comm: Expert-parallel communication for Attention-FFN Disaggregation},
+  author       = {Etelis, Itay and Tavor, Almog and Kat, Ronen},
+  year         = {2026},
+  publisher    = {GitHub},
+  howpublished = {\url{https://github.com/afdEP/afdEP-comm}},
+  note         = {Equal contribution}
+}
+```
+
 ## Acknowledgments
 
 afdEP-comm's communication kernels are DeepEP's. [DeepEP](https://github.com/deepseek-ai/DeepEP),
