@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="900" viewBox="0 0 1240 900" role="img" aria-labelledby="title desc" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1112" viewBox="0 0 1240 1112" role="img" aria-labelledby="title desc" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
 <title id="title">FFN receive layouts: expert and token</title>
 <desc id="desc">Two Attention GPUs dispatch four tokens, each with three expert choices, to two FFN GPUs. FFN GPU 0 receives three of them. The expert layout copies a token once per local expert and groups rows by expert. The token layout keeps one row per token with local expert IDs and weights; ID -1 and weight 0 mark an expert on another GPU and unused rows, written by the copy kernel.</desc>
-<rect x="0" y="0" width="1240" height="900" rx="0" fill="#1a1a19" stroke="#1a1a19" stroke-width="1"/>
+<rect x="0" y="0" width="1240" height="1112" rx="0" fill="#1a1a19" stroke="#1a1a19" stroke-width="1"/>
 <text x="20" y="36" font-size="24" font-weight="700" fill="#f0efec" text-anchor="start">What an FFN GPU receives: expert layout or token layout</text>
 <g transform="translate(0,-34)">
 <rect x="20" y="86" width="1200" height="184" rx="14" fill="#25211e" stroke="#25211e" stroke-width="1"/>
@@ -261,7 +261,7 @@
 <rect x="502" y="758" width="40" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
 <text x="522.0" y="774.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">0.2</text>
 <path d="M316,786 V804 M171,832 V804 H461 V832 M167,826 L171,832 L175,826 M457,826 L461,832 L465,826" fill="none" stroke="#d95926" stroke-width="2"/>
-<text x="326" y="798" font-size="12" font-weight="700" fill="#d95926" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy kernel, kAfdTokenRoutes</text>
+<text x="326" y="798" font-size="12" font-weight="700" fill="#d95926" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy into recv_x, kAfdTokenRoutes</text>
 <text x="40" y="850" font-size="13" font-weight="700" fill="#f0efec" text-anchor="start">FFN GPU 0</text>
 <text x="120" y="850" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="start">experts 0-3</text>
 <text x="40" y="868" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">recv_topk_idx</text>
@@ -300,44 +300,81 @@
 <text x="40" y="928" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="start">local expert: stored as ID - first local ID</text>
 <text x="330" y="928" font-size="12" font-weight="400" fill="#d95926" text-anchor="start">expert on another GPU: ID -1, weight 0</text>
 <rect x="630" y="700" width="590" height="240" rx="14" fill="#25211e" stroke="#25211e" stroke-width="1"/>
-<text x="648" y="728" font-size="16" font-weight="700" fill="#f0efec" text-anchor="start">When the copy kernel runs</text>
+<text x="648" y="728" font-size="16" font-weight="700" fill="#f0efec" text-anchor="start">When tokens are copied into recv_x</text>
 <text x="1202" y="728" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">AFDEP_COUNT_FIRST_MIN_BUCKET</text>
 <text x="650" y="758.5" font-size="13" font-weight="700" fill="#f0efec" text-anchor="start">payload-first</text>
 <rect x="760" y="742" width="60" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
 <text x="790.0" y="758.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">counts</text>
 <rect x="824" y="742" width="200" height="24" rx="3" fill="#1d3350" stroke="#4a4a46" stroke-width="1"/>
-<text x="924.0" y="758.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">payload arrives</text>
+<text x="924.0" y="758.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">tokens arrive</text>
 <rect x="1028" y="742" width="170" height="24" rx="3" fill="#2c2c2a" stroke="#d95926" stroke-width="2"/>
-<text x="1113.0" y="758.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy after all rows</text>
+<text x="1113.0" y="758.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">then copy to recv_x</text>
 <text x="650" y="802.5" font-size="13" font-weight="700" fill="#f0efec" text-anchor="start">count-first</text>
 <rect x="760" y="786" width="60" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
 <text x="790.0" y="802.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">counts</text>
 <rect x="824" y="786" width="200" height="24" rx="3" fill="#1d3350" stroke="#4a4a46" stroke-width="1"/>
-<text x="924.0" y="802.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">payload arrives</text>
+<text x="924.0" y="802.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">tokens arrive</text>
 <rect x="824" y="810" width="200" height="24" rx="3" fill="#2c2c2a" stroke="#d95926" stroke-width="2"/>
-<text x="924.0" y="826.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy each row on arrival</text>
-<text x="685.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle"></text>
-<text x="782.5" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">1 NVLink domain</text>
-<text x="905.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">count-first</text>
-<text x="1027.5" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">several domains</text>
-<text x="1145.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">FP8 replies</text>
-<text x="650" y="894.5" font-size="12" font-weight="700" fill="#f0efec" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">expert</text>
-<rect x="722" y="878" width="121" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="782.5" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<rect x="847" y="878" width="116" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="905.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<rect x="967" y="878" width="121" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="1027.5" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<rect x="1092" y="878" width="106" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="1145.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<text x="650" y="922.5" font-size="12" font-weight="700" fill="#f0efec" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">token</text>
-<rect x="722" y="906" width="121" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="782.5" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<rect x="847" y="906" width="116" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
-<text x="905.0" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
-<rect x="967" y="906" width="121" height="24" rx="3" fill="#2c2c2a" stroke="#d95926" stroke-width="2"/>
-<text x="1027.5" y="922.5" font-size="12" font-weight="400" fill="#d95926" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">rejected</text>
-<rect x="1092" y="906" width="106" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
-<text x="1145.0" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">BF16 instead</text>
+<text x="924.0" y="826.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">copy to recv_x on arrival</text>
+<text x="650" y="866.5" font-size="12" font-weight="700" fill="#f0efec" text-anchor="start">Works with:</text>
+<text x="810.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">one NVLink domain</text>
+<text x="918.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">count-first copy</text>
+<text x="1032.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">several domains</text>
+<text x="1147.0" y="866.5" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="middle">FP8 replies</text>
+<text x="650" y="894.5" font-size="12" font-weight="700" fill="#f0efec" text-anchor="start">expert layout</text>
+<rect x="756" y="878" width="108" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="810.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<rect x="868" y="878" width="100" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="918.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<rect x="972" y="878" width="120" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="1032.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<rect x="1096" y="878" width="102" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="1147.0" y="894.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<text x="650" y="922.5" font-size="12" font-weight="700" fill="#f0efec" text-anchor="start">token layout</text>
+<rect x="756" y="906" width="108" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="810.0" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<rect x="868" y="906" width="100" height="24" rx="3" fill="#1f3d24" stroke="#4a4a46" stroke-width="1"/>
+<text x="918.0" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">yes</text>
+<rect x="972" y="906" width="120" height="24" rx="3" fill="#2c2c2a" stroke="#d95926" stroke-width="2"/>
+<text x="1032.0" y="922.5" font-size="12" font-weight="400" fill="#d95926" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">no: error</text>
+<rect x="1096" y="906" width="102" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
+<text x="1147.0" y="922.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">no: BF16</text>
+<rect x="20" y="956" width="1200" height="196" rx="14" fill="#25211e" stroke="#25211e" stroke-width="1"/>
+<text x="38" y="984" font-size="16" font-weight="700" fill="#f0efec" text-anchor="start">Across NVLink domains: how t0 reaches both FFN GPUs</text>
+<text x="1202" y="984" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">allow_hybrid_mode</text>
+<text x="40" y="1004" font-size="13" font-weight="700" fill="#f0efec" text-anchor="start">hybrid (True, default)</text>
+<rect x="40" y="1014" width="150" height="92" rx="8" fill="#1a1a19" stroke="#4a4a46" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="50" y="1030" font-size="11" font-weight="400" fill="#c3c2b7" text-anchor="start">NVLink domain 0</text>
+<rect x="55" y="1040" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="115.0" y="1056.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Attention 0</text>
+<rect x="55" y="1072" width="120" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
+<text x="115.0" y="1088.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Attention 1</text>
+<rect x="370" y="1014" width="150" height="92" rx="8" fill="#1a1a19" stroke="#4a4a46" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="380" y="1030" font-size="11" font-weight="400" fill="#c3c2b7" text-anchor="start">NVLink domain 1</text>
+<rect x="385" y="1040" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="445.0" y="1056.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">FFN GPU 0</text>
+<rect x="385" y="1072" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="445.0" y="1088.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">FFN GPU 1</text>
+<path d="M177,1052 H383 m-7,-4 l7,4 l-7,4" fill="none" stroke="#d95926" stroke-width="2"/>
+<text x="280" y="1045" font-size="11" font-weight="400" fill="#d95926" text-anchor="middle">1 RDMA write per NVLink domain</text>
+<path d="M505,1052 H520 V1084 H507 m7,-4 l-7,4 l7,4" fill="none" stroke="#3987e5" stroke-width="2"/>
+<text x="528" y="1072" font-size="11" font-weight="400" fill="#3987e5" text-anchor="start">NVLink copy</text>
+<text x="640" y="1004" font-size="13" font-weight="700" fill="#f0efec" text-anchor="start">direct (False)</text>
+<rect x="640" y="1014" width="150" height="92" rx="8" fill="#1a1a19" stroke="#4a4a46" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="650" y="1030" font-size="11" font-weight="400" fill="#c3c2b7" text-anchor="start">NVLink domain 0</text>
+<rect x="655" y="1040" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="715.0" y="1056.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Attention 0</text>
+<rect x="655" y="1072" width="120" height="24" rx="3" fill="#383835" stroke="#4a4a46" stroke-width="1"/>
+<text x="715.0" y="1088.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Attention 1</text>
+<rect x="970" y="1014" width="150" height="92" rx="8" fill="#1a1a19" stroke="#4a4a46" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="980" y="1030" font-size="11" font-weight="400" fill="#c3c2b7" text-anchor="start">NVLink domain 1</text>
+<rect x="985" y="1040" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="1045.0" y="1056.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">FFN GPU 0</text>
+<rect x="985" y="1072" width="120" height="24" rx="3" fill="#5a2b17" stroke="#4a4a46" stroke-width="1"/>
+<text x="1045.0" y="1088.5" font-size="12" font-weight="400" fill="#f0efec" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">FFN GPU 1</text>
+<path d="M777,1052 H983 m-7,-4 l7,4 l-7,4" fill="none" stroke="#d95926" stroke-width="2"/>
+<text x="880" y="1045" font-size="11" font-weight="400" fill="#d95926" text-anchor="middle">1 RDMA write per FFN GPU</text>
+<path d="M777,1058 C880,1058 880,1084 983,1084 m-7,-4 l7,4 l-7,4" fill="none" stroke="#d95926" stroke-width="2"/>
+<text x="40" y="1134" font-size="12" font-weight="400" fill="#c3c2b7" text-anchor="start">The token record is the same in both layouts and both modes: x + 3 IDs + 3 weights. Only the receiving GPU's copy kernel differs.</text>
 </g>
 </svg>

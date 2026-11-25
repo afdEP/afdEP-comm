@@ -32,8 +32,13 @@ instead of expert-major rows. It runs in one NVLink domain with BF16 replies.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/token-layout-dark.svg">
-  <img alt="One route as FFN rank 0 receives it in the expert layout and in the token layout, the copy epilogue's padding cleanup, and count-first receive order" src="assets/token-layout.svg">
+  <img alt="One route as FFN rank 0 receives it in the expert layout and in the token layout, the copy epilogue's padding cleanup, and count-first receive order, and a token crossing NVLink domains" src="assets/token-layout.svg">
 </picture>
+
+Across NVLink domains a dispatched token is written once per destination domain over RDMA
+and then copied to each chosen FFN rank over NVLink (hybrid, the default); with
+`allow_hybrid_mode=False` it is written once per chosen FFN rank over RDMA. The token
+record is the same in both receive layouts.
 
 BF16 dispatch uses BF16 activations. FP8 uses `float8_e4m3fn` activations and
 FP32 block-128 scales `[T,H/128]`; strided scale views are supported. The library

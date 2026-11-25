@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WIDTH, HEIGHT = 1240, 900
+WIDTH, HEIGHT = 1240, 1112
 FONT = "system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 LIGHT = dict(
@@ -284,7 +284,7 @@ def draw(c: dict[str, str]) -> str:
         f'M457,826 L461,832 L465,826" fill="none" stroke="{c["orange"]}" '
         'stroke-width="2"/>'
     )
-    text(326, 798, "copy kernel, kAfdTokenRoutes", 12, "orange", 700, mono=True)
+    text(326, 798, "copy into recv_x, kAfdTokenRoutes", 12, "orange", 700, mono=True)
     for gpu, x in enumerate((40, 330)):
         text(x, 850, f"FFN GPU {gpu}", 13, weight=700)
         text(x + 80, 850, f"experts {gpu * EXPERTS}-{(gpu + 1) * EXPERTS - 1}", 12,
@@ -304,7 +304,7 @@ def draw(c: dict[str, str]) -> str:
     text(330, 928, "expert on another GPU: ID -1, weight 0", 12, "orange")
 
     # Count-first and support.
-    panel(630, 700, 590, 240, "When the copy kernel runs",
+    panel(630, 700, 590, 240, "When tokens are copied into recv_x",
           "AFDEP_COUNT_FIRST_MIN_BUCKET")  # fmt: skip
     for index, (label, first) in enumerate(
         (("payload-first", False), ("count-first", True))
@@ -312,32 +312,72 @@ def draw(c: dict[str, str]) -> str:
         y = 742 + index * 44
         text(650, y + 16.5, label, 13, weight=700)
         cell(760, y, "counts", "other", 60)
-        cell(824, y, "payload arrives", "t2", 200)
+        cell(824, y, "tokens arrive", "t2", 200)
         if first:
-            cell(824, y + ROW - 2, "copy each row on arrival", "cell", 200, "orange")
+            cell(824, y + ROW - 2, "copy to recv_x on arrival", "cell", 200, "orange")
         else:
-            cell(1028, y, "copy after all rows", "cell", 170, "orange")
-    heads = ("", "1 NVLink domain", "count-first", "several domains", "FP8 replies")
+            cell(1028, y, "then copy to recv_x", "cell", 170, "orange")
+    heads = ("Works with:", "one NVLink domain", "count-first copy",
+             "several domains", "FP8 replies")  # fmt: skip
     table = (
-        ("expert", "yes", "yes", "yes", "yes"),
-        ("token", "yes", "yes", "rejected", "BF16 instead"),
+        ("expert layout", "yes", "yes", "yes", "yes"),
+        ("token layout", "yes", "yes", "no: error", "no: BF16"),
     )
-    widths = (70, 125, 120, 125, 110)
+    widths = (104, 112, 104, 124, 106)
     for r, line in enumerate((heads, *table)):
         x = 650
         for value, width in zip(line, widths, strict=True):
             y = 850 + r * 28
-            if r == 0:
+            if r == 0 and x == 650:
+                text(x, y + 16.5, value, 12, weight=700)
+            elif r == 0:
                 text(x + width / 2, y + 16.5, value, 12, "sub", anchor="middle")
             elif x == 650:
-                text(x, y + 16.5, value, 12, weight=700, mono=True)
+                text(x, y + 16.5, value, 12, weight=700)
             elif value == "yes":
                 cell(x + 2, y, value, "t3", width - 4)
-            elif value != "rejected":
+            elif "error" not in value:
                 cell(x + 2, y, value, "other", width - 4)
             else:
                 cell(x + 2, y, value, "cell", width - 4, "orange", "orange")
             x += width
+
+    # Across NVLink domains: how t0 reaches both FFN GPUs.
+    panel(20, 956, 1200, 196, "Across NVLink domains: how t0 reaches both FFN GPUs",
+          "allow_hybrid_mode")  # fmt: skip
+    modes = (
+        ("hybrid (True, default)", "1 RDMA write per NVLink domain"),
+        ("direct (False)", "1 RDMA write per FFN GPU"),
+    )
+    for index, (label, note) in enumerate(modes):
+        x = 40 + index * 600
+        text(x, 1004, label, 13, weight=700)
+        for side, names in enumerate((("Attention 0", "Attention 1"),
+                                      ("FFN GPU 0", "FFN GPU 1"))):  # fmt: skip
+            bx = x + side * 330
+            box(bx, 1014, 150, 92, "bg", "line", 8, dash=True)
+            text(bx + 10, 1030, f"NVLink domain {side}", 11, "sub")
+            for row, name in enumerate(names):
+                fill = "other" if name == "Attention 1" else "t0"
+                cell(bx + 15, 1040 + row * 32, name, fill, 120)
+        orange = f'fill="none" stroke="{c["orange"]}" stroke-width="2"'
+        blue = f'fill="none" stroke="{c["blue"]}" stroke-width="2"'
+        out.append(f'<path d="M{x + 137},1052 H{x + 343} m-7,-4 l7,4 l-7,4" {orange}/>')
+        text(x + 240, 1045, note, 11, "orange", anchor="middle")
+        if index == 0:
+            out.append(
+                f'<path d="M{x + 465},1052 H{x + 480} V1084 H{x + 467} '
+                f'm7,-4 l-7,4 l7,4" {blue}/>'
+            )
+            text(x + 488, 1072, "NVLink copy", 11, "blue")
+        else:
+            out.append(
+                f'<path d="M{x + 137},1058 C{x + 240},1058 {x + 240},1084 '
+                f'{x + 343},1084 m-7,-4 l7,4 l-7,4" {orange}/>'
+            )
+    text(40, 1134, "The token record is the same in both layouts and both modes: "
+         f"x + {TOP_K} IDs + {TOP_K} weights. Only the receiving GPU's copy kernel "
+         "differs.", 12, "sub")  # fmt: skip
     out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
