@@ -11,6 +11,7 @@ Model code, quantization and expert computation stay with the caller.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -886,6 +887,27 @@ class Buffer:
         self._zero_output = None
 
 
+@contextmanager
+def _own_comm_streams(enabled: bool) -> Iterator[None]:
+    """Buffers constructed inside get a communication stream each."""
+    previous = os.environ.get(PER_BUFFER_COMM_STREAM_ENV)
+    if enabled:
+        os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(PER_BUFFER_COMM_STREAM_ENV, None)
+        else:
+            os.environ[PER_BUFFER_COMM_STREAM_ENV] = previous
+
+
+def _check_own_comm_streams(buffers: tuple[Buffer, ...]) -> None:
+    streams = [buffer.comm_stream for buffer in buffers]
+    if any(a == b for i, a in enumerate(streams) for b in streams[i + 1 :]):
+        raise RuntimeError("Buffers must not share a communication stream")
+
+
 class Lanes:
     """Several Buffers on one group, one in-flight exchange each.
 
@@ -906,16 +928,12 @@ class Lanes:
         if any(count != lanes for count in counts):
             raise ValueError("Every AFD rank must use the same number of lanes")
         # One lane keeps the process-wide communication stream, as a lone Buffer does.
-        previous = os.environ.get(PER_BUFFER_COMM_STREAM_ENV)
-        if lanes > 1:
-            os.environ[PER_BUFFER_COMM_STREAM_ENV] = "1"
         buffers: list[Buffer] = []
         try:
-            for _ in range(lanes):
-                buffers.append(Buffer(group=group, config=config))
-            streams = [buffer.comm_stream for buffer in buffers]
-            if any(a == b for i, a in enumerate(streams) for b in streams[i + 1 :]):
-                raise RuntimeError("Lanes must not share a communication stream")
+            with _own_comm_streams(lanes > 1):
+                for _ in range(lanes):
+                    buffers.append(Buffer(group=group, config=config))
+            _check_own_comm_streams(tuple(buffers))
         except BaseException:
             # Free the lanes already built; the caller never receives them. Close
             # is collective, so this completes only where every rank failed alike.
@@ -925,11 +943,6 @@ class Lanes:
                 except Exception:
                     pass  # Report the construction error, not the cleanup's.
             raise
-        finally:
-            if previous is None:
-                os.environ.pop(PER_BUFFER_COMM_STREAM_ENV, None)
-            else:
-                os.environ[PER_BUFFER_COMM_STREAM_ENV] = previous
         self._buffers = tuple(buffers)
 
     def __len__(self) -> int:
@@ -944,6 +957,65 @@ class Lanes:
     def close(self) -> None:
         for buffer in reversed(self._buffers):
             buffer.close()
+
+
+class Units:
+    """One Buffer per Attention unit, every unit over the same FFN ranks.
+
+    ``group`` holds the FFN ranks [0, F) and then ``units`` Attention units of
+    ``config.attention_ranks`` ranks each; ``config`` describes one unit. An FFN
+    rank holds every unit's Buffer in unit order, an Attention rank only its own.
+    Each unit has its own Gloo subgroup, communicator and registered storage, so
+    no unit's exchange involves the ranks of another unit. Every process of the
+    job constructs it (``torch.distributed.new_group`` is job-wide). Constructor
+    and close are collective, outside capture.
+    """
+
+    def __init__(self, *, group: dist.ProcessGroup, config: Config, units: int) -> None:
+        import torch.distributed as dist
+
+        if type(units) is not int or units < 1:
+            raise ValueError("units must be a positive int")
+        # A per-domain FFN prefix has not been validated with units.
+        if config.ffn_ranks_per_domain:
+            raise ValueError("Units requires the FFN ranks to be ranks [0, ffn_ranks)")
+        counts = [None] * group.size()
+        dist.all_gather_object(counts, units, group=group)
+        if any(count != units for count in counts):
+            raise ValueError("Every AFD rank must use the same number of units")
+        ffn, attention = config.ffn_ranks, config.attention_ranks
+        if group.size() != ffn + units * attention:
+            raise ValueError("group size does not match ffn_ranks plus the units")
+        job_ranks = dist.get_process_group_ranks(group)
+        self._groups, buffers = [], []
+        with _own_comm_streams(units > 1):
+            for unit in range(units):
+                first = ffn + unit * attention
+                members = [*range(ffn), *range(first, first + attention)]
+                unit_group = dist.new_group([job_ranks[rank] for rank in members])
+                if group.rank() in members:
+                    self._groups.append(unit_group)
+                    buffers.append(Buffer(group=unit_group, config=config))
+        self._buffers = tuple(buffers)
+        _check_own_comm_streams(self._buffers)
+
+    def __len__(self) -> int:
+        return len(self._buffers)
+
+    def __getitem__(self, index: int) -> Buffer:
+        return self._buffers[index]
+
+    def __iter__(self) -> Iterator[Buffer]:
+        return iter(self._buffers)
+
+    def close(self) -> None:
+        import torch.distributed as dist
+
+        for buffer in reversed(self._buffers):
+            buffer.close()
+        for unit_group in self._groups:
+            dist.destroy_process_group(unit_group)
+        self._groups = []
 
 
 # Names used by the earlier (v0) reuse connector. They alias the current implementation.

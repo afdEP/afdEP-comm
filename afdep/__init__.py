@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Expert-parallel communication for Attention-FFN Disaggregation."""
 
-from .deepep import Buffer, Config, DispatchHandle, Lanes, ReceiveResult
+from .deepep import Buffer, Config, DispatchHandle, Lanes, ReceiveResult, Units
 
 __version__ = "1.2.1"
 __all__ = [
@@ -10,5 +10,6 @@ __all__ = [
     "DispatchHandle",
     "Lanes",
     "ReceiveResult",
+    "Units",
     "__version__",
 ]
