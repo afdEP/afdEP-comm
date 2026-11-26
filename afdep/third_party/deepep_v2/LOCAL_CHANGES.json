@@ -12,7 +12,7 @@
     },
     "csrc/kernels/elastic/dispatch.hpp": {
       "upstream_sha256": "34180aebedf6f0a7062fd2bfe4f35668a58ae9486767f7d77554817a8f9999a2",
-      "sha256": "0399eb9ecde6e3cce037a30fd827670f1163de9abd782c5ac8cb7bb0902a4e84"
+      "sha256": "a2ac37f9c4cf1fc78529a1b13518515f91a0f1c92c7394df5a9ebd9d55493575"
     },
     "csrc/python_api.cpp": {
       "upstream_sha256": "64b6041b75c1027c9f7f16b236e1fb037f0838f5338020804035e8e39d5710ba",
@@ -51,7 +51,7 @@
       "sha256": "7821c15e8c4037dd3f6f48e796fd58d07f30168c11506ec115418d7458a6b96c"
     },
     "csrc/kernels/elastic/afdep_suites.hpp": {
-      "sha256": "bf92e28ec215cf60519724d1ea3bfe8d658adcfba805751ba85386d547d35e26"
+      "sha256": "33701de83e5995c501da158b3621120484640eab8b53345471bf8b14fa051fc9"
     },
     "deep_ep/include/deep_ep/impls/afdep_count_first.cuh": {
       "sha256": "a7779f4bf9c270f2b6af935ec012b104a1968d4e71c989dad1c054a60a317694"

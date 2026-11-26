@@ -375,7 +375,7 @@ static void __instantiate_kernel() {{
 };
 
 // afdEP FFN dispatch receive of one NVLink domain (afdep_suites.hpp): the shared argument
-// list and launch shape, through a generated copy of dispatch.cuh.
+// list, through a generated copy of dispatch.cuh.
 class AfdepFfnDispatchRuntime final : public jit::LaunchRuntime<AfdepFfnDispatchRuntime> {
 public:
     using Args = DispatchRuntime::Args;
@@ -638,14 +638,20 @@ static void launch_dispatch(void* x, void* sf,
         return;
     }
     if (afd_shape == AfdLaunchShape::kRoleKernel and num_scaleout_ranks == 1) {
-        // afdEP FFN receive of one NVLink domain (afdep_suites.hpp): the shared shape; the copy
-        // triggers the copy epilogue only after the arrival wait.
+        // FFN receive in one NVLink domain. The notify warps trigger the copy epilogue.
         EP_HOST_ASSERT(is_scaleup_nvlink and num_tokens == 0 and args.afd_ffn_ranks > 0 and
                        args.afd_skip_entry_barrier and args.afd_directional_notify and args.afd_directed_exit and
                        scaleup_rank_idx < args.afd_ffn_ranks and not reuse_slot_indices);
         const auto role_code = AfdepFfnDispatchRuntime::generate(args);
         const auto role_runtime = jit::compiler->build("afdep_ffn_dispatch", role_code);
-        AfdepFfnDispatchRuntime::launch(role_runtime, args, stream);
+        // Block 0 waits for all sender CTAs. Keep their count in the kernel specialization.
+        static const bool full_receive_grid = deep_ep::get_env<int>("AFDEP_FULL_FFN_RECEIVE_GRID", 0) != 0;
+        auto receive_args = args;
+        if (args.afd_per_cta_exit and not full_receive_grid) {
+            receive_args.launch_args.grid_dim.first = 1;
+            receive_args.launch_args.cluster_dim = 1;
+        }
+        AfdepFfnDispatchRuntime::launch(role_runtime, receive_args, stream);
         return;
     }
     if (afd_shape == AfdLaunchShape::kRoleKernel) {
