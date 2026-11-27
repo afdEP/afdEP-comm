@@ -506,21 +506,17 @@ DISPATCH_EXPAND, COMBINE_EXPANDED = 23, 17
 
 
 def test_token_major_layout_configuration_and_receive_bounds():
-    expert, token = config(), config(receive_layout="token-major")
-    assert expert.expanded and not token.expanded
+    expert, token = config(), config(do_expand=False)
     # One row per token from each of the two Attention sources.
     assert token.receive_rows(8) == 2 * 8 < expert.receive_rows(8)
-    with pytest.raises(ValueError, match="receive_layout"):
-        config(receive_layout="token")
+    with pytest.raises(ValueError, match="do_expand"):
+        config(do_expand="token-major")
 
 
-@pytest.mark.parametrize("layout", ["expert-major", "token-major"])
-def test_receive_layout_selects_the_native_flags(runtime, layout):
+@pytest.mark.parametrize("expanded", [True, False])
+def test_do_expand_selects_the_native_flags(runtime, expanded):
     runtime.group.rank = lambda: 0
-    expanded = layout == "expert-major"
-    buffer = deepep.DeepEPBuffer(
-        group=runtime.group, config=config(receive_layout=layout)
-    )
+    buffer = deepep.DeepEPBuffer(group=runtime.group, config=config(do_expand=expanded))
     received = buffer.worker_receive(bucket=8)
     assert runtime.native.dispatch.call_args.args[DISPATCH_EXPAND] is expanded
     assert received.expanded is received.receipt.expanded is expanded
@@ -535,7 +531,7 @@ def test_token_major_layout_across_nvlink_domains_rejects_fp8_replies(
 ):
     monkeypatch.delenv("EP_DISABLE_GIN", raising=False)
     runtime.module.get_physical_domain_size.return_value = (2, 2)
-    token = config(receive_layout="token-major")
+    token = config(do_expand=False)
     assert deepep.DeepEPBuffer(group=runtime.group, config=token).fp8_combine is False
     runtime.native.destroy.reset_mock()
     runtime.module.destroy_nccl_comm.reset_mock()

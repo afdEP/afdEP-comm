@@ -33,10 +33,6 @@ DEFAULT_COMM_SM_FRACTION = 24 / 132
 HYBRID_DEFAULT_QPS = 129
 DIRECT_DEFAULT_QPS = 17
 INT32_MAX = (1 << 31) - 1
-# FFN receive layouts: one row per (token, local expert),
-# grouped by expert, or one row per received token with its local expert IDs.
-EXPERT_LAYOUT, TOKEN_LAYOUT = "expert-major", "token-major"
-RECEIVE_LAYOUTS = (EXPERT_LAYOUT, TOKEN_LAYOUT)
 # Several Buffers in one process each need a communication stream of their own.
 # The native runtime reads this when a Buffer is constructed. ``Lanes`` sets it
 # while it constructs its Buffers; a caller constructing them itself sets it to
@@ -71,8 +67,8 @@ class Config:
 
     FFN ranks are ranks [0, ffn_ranks), or with ``ffn_ranks_per_domain`` f the first
     f ranks of each of the ffn_ranks / f NVLink domains (see ``per_domain_layout``).
-    ``receive_layout`` selects the FFN receive rows: ``"expert-major"`` or
-    ``"token-major"`` (replies stay BF16).
+    ``do_expand`` is DeepEP's dispatch argument and selects the FFN receive rows:
+    True for expert-major, False for token-major (replies stay BF16).
     """
 
     capacity_tokens_per_rank: int
@@ -90,7 +86,7 @@ class Config:
     cpu_timeout_s: int = 120
     gpu_timeout_s: int = 120
     ffn_ranks_per_domain: int = 0
-    receive_layout: Literal["expert-major", "token-major"] = EXPERT_LAYOUT
+    do_expand: bool = True
 
     def __post_init__(self) -> None:
         for name in (
@@ -127,8 +123,8 @@ class Config:
             raise ValueError("top_k must be <=32 and <=num_experts")
         if self.payload not in {"bf16", "fp8"}:
             raise ValueError("payload must be 'bf16' or 'fp8'")
-        if self.receive_layout not in RECEIVE_LAYOUTS:
-            raise ValueError("receive_layout must be 'expert-major' or 'token-major'")
+        if not isinstance(self.do_expand, bool):
+            raise ValueError("do_expand must be a bool")
         if (
             self.world_size > MAX_RANKS
             or self.logical_experts > MAX_LOGICAL_EXPERTS
@@ -185,14 +181,9 @@ class Config:
         )
         return self.world_size // domains, self.ffn_ranks // domains
 
-    @property
-    def expanded(self) -> bool:
-        """Whether the FFN receives expert-major (expanded) rows."""
-        return self.receive_layout == EXPERT_LAYOUT
-
     def receive_rows(self, bucket: int) -> int:
         """FFN receive rows for one bucket: only Attention ranks send."""
-        if not self.expanded:
+        if not self.do_expand:
             # One row per (token, FFN rank): each source sends a token at most once.
             return self.attention_ranks * bucket
         return self._receive_rows(self.attention_ranks, bucket)
@@ -784,7 +775,7 @@ class Buffer:
         self.num_buffer_bytes = self.transport.num_buffer_bytes
         self.topk_idx_dtype = self.transport.topk_idx_dtype
         # FP8 replies quantize expert rows; token-major replies stay BF16.
-        self.fp8_combine = self.transport.fp8_combine and config.expanded
+        self.fp8_combine = self.transport.fp8_combine and config.do_expand
         self.fp8_combine_min_bucket = (
             self.transport.fp8_combine_min_bucket if self.fp8_combine else 0
         )
@@ -821,14 +812,14 @@ class Buffer:
         Every rank sees the same transport and reply format, so every rank
         closes (a collective) and raises together.
         """
-        if self.config.expanded:
+        if self.config.do_expand:
             return
         error = None
         if self.transport.ffn_ranks is None:
-            error = "receive_layout='token-major' requires the AFD transport"
+            error = "do_expand=False requires the AFD transport"
         elif self.physical_domain[0] > 1 and self.transport.fp8_combine:
             error = (
-                "receive_layout='token-major' replies are BF16 across NVLink domains; "
+                "do_expand=False replies are BF16 across NVLink domains; "
                 "unset AFDEP_HYBRID_FP8_COMBINE"
             )
         if error is not None:
@@ -928,7 +919,7 @@ class Buffer:
             bucket=bucket,
             expert_alignment=c.expert_alignment,
             do_cpu_sync=read_host_counts,
-            expand=c.expanded,
+            expand=c.do_expand,
         )
 
     def worker_receive(
@@ -945,7 +936,7 @@ class Buffer:
             bucket=bucket,
             expert_alignment=self.config.expert_alignment,
             do_cpu_sync=read_host_counts,
-            expand=self.config.expanded,
+            expand=self.config.do_expand,
         )
 
     def source_collect(self, *, view: bool = False) -> torch.Tensor:

@@ -124,8 +124,9 @@ for hybrid and direct transport, and for any number of NVLink domains:
 
 Each field is padded to DeepEP's TMA alignment (`layout::TokenLayout`). A token is sent once
 per destination FFN rank, with all `K` IDs and weights. The receiving rank's copy kernel alone
-builds the rows: `Config(receive_layout="expert-major")` writes one row per local expert hit,
-`"token-major"` one row per token with the IDs of other ranks set to `-1`. The token-major
+builds the rows: `Config(do_expand=True)`, DeepEP's dispatch argument and the default, writes
+one row per local expert hit (expert-major); `do_expand=False` writes one row per token with
+the IDs of other ranks set to `-1` (token-major). The token-major
 layout therefore runs across NVLink domains as well; its replies stay BF16, and construction
 rejects `AFDEP_HYBRID_FP8_COMBINE` with it across domains.
 

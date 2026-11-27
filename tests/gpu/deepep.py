@@ -19,7 +19,7 @@ import torch.distributed as dist
 
 from afdep import Buffer, Config, Lanes
 from afdep._build import source_digest
-from afdep.deepep import EXPERT_LAYOUT, RECEIVE_LAYOUTS, per_domain_layout
+from afdep.deepep import per_domain_layout
 from benchmarks.fastafd import BASELINE, FastAFDBuffer, make
 
 DEFAULT_HIDDEN = 256
@@ -37,6 +37,9 @@ COLLECT_VIEW = False  # --collect-view: Attention reads the single-FFN collect v
 # role's launch shape; protocol and buffer-geometry controls must match on all ranks.
 ROLE_LOCAL_ENV_PREFIX, ROLE_LOCAL_ENV = "AFDEP_SHARED_", ("AFDEP_ATTENTION_GRID_SYNC",)
 RECORDED_ENV_PREFIXES = ("AFDEP_", "EP_", "NCCL_")
+# --receive-layout names for Config.do_expand True and False.
+EXPERT_MAJOR = "expert-major"
+RECEIVE_LAYOUTS = (EXPERT_MAJOR, "token-major")
 # FP8 combine replies (AFDEP_HYBRID_FP8_COMBINE=1, afdep_fp8_combine.cuh): E4M3 per FFN
 # domain, one power-of-two scale 2^e per 128 elements, e the smallest integer with
 # amax <= 448 * 2^e (from amax's FP32 bits), clamped at -117.
@@ -232,7 +235,7 @@ class Exchange:
         """Collect (Attention) or run the test experts and reply (FFN)."""
         if self.buffer.role == "attention":
             return self.buffer.source_collect(view=COLLECT_VIEW).clone(), None
-        if self.config.expanded:
+        if self.config.do_expand:
             rows = expert_rows(received, self.buffer.role_rank, self.config)
             snapshot = received.recv_count_psum.clone()
         else:
@@ -378,7 +381,7 @@ def verify(
         counts += torch.bincount(selected, minlength=config.experts_per_rank)
         weight_sums.index_add_(0, selected, weights[local])
         tokens += int(local.any(dim=1).sum())
-    if not config.expanded:
+    if not config.do_expand:
         verify_token_receive(value, host_counts, config, counts, weight_sums, tokens)
         return
     previous = torch.cat((value.new_zeros(1), value[:-1]))
@@ -701,7 +704,7 @@ def main() -> None:
     parser.add_argument(
         "--receive-layout",
         choices=RECEIVE_LAYOUTS,
-        default=EXPERT_LAYOUT,
+        default=EXPERT_MAJOR,
         help="FFN receive rows: expert-major or token-major",
     )
     parser.add_argument(
@@ -721,7 +724,7 @@ def main() -> None:
         parser.error("lanes>1 requires afdEP-comm without --collect-view")
     if args.invalid_route and (args.baseline or args.capacity < 8):
         parser.error("invalid-route requires afdEP-comm (no baseline) and capacity>=8")
-    if args.baseline and args.receive_layout != EXPERT_LAYOUT:
+    if args.baseline and args.receive_layout != EXPERT_MAJOR:
         parser.error("the baseline receives expert-major rows only")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     dist.init_process_group("gloo", timeout=timedelta(seconds=300))
@@ -757,7 +760,7 @@ def main() -> None:
         gpu_timeout_s=10 if args.invalid_route else 120,
     )
     if not args.baseline:
-        settings["receive_layout"] = args.receive_layout
+        settings["do_expand"] = args.receive_layout == EXPERT_MAJOR
     # Lane 0 runs the whole single-Buffer suite beside the other live Buffers.
     if args.baseline:
         buffers = [make(dist.group.WORLD, args.baseline, **settings)]
