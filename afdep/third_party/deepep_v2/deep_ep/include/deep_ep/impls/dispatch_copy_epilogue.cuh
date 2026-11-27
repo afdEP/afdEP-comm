@@ -17,6 +17,9 @@ template <bool kDoExpand, bool kCachedMode, bool kReadDeviceCount,
           int kNumExperts, int kNumTopk,
           // afdEP role buffers: inbox regions start at the first Attention source.
           int kAfdRegionOffset = 0,
+          // afdEP token-major receive: a choice of an expert held elsewhere and every row past
+          // the live count carry no route (ID -1, weight 0).
+          bool kAfdTokenRoutes = false,
           int kNumRanks = kNumScaleoutRanks * kNumScaleupRanks,
           int kNumThreads = kNumWarps * 32,
           int kNumMaxTokensPerChannel = math::constexpr_ceil_div(kNumMaxTokensPerRank, kNumChannels),
@@ -61,6 +64,7 @@ dispatch_copy_epilogue_impl(void* buffer, void* workspace,
     cudaGridDependencySynchronize();
 
     // For no CPU sync case, the number of received tokens should be read from the GPU tensor
+    const int num_allocated_tokens = num_recv_tokens;
     if constexpr (kReadDeviceCount) {
         const int actual = psum_num_recv_tokens_per_scaleup_rank[kNumScaleupRanks - 1];
         EP_DEVICE_ASSERT(actual >= 0 and actual <= num_recv_tokens);
@@ -186,7 +190,8 @@ dispatch_copy_epilogue_impl(void* buffer, void* workspace,
             recv_topk_weights[dst_tensor_idx] = tma_buffer.get_topk_weights_ptr()[lane_idx];
         } else if (not kDoExpand and recv_topk_weights != nullptr and lane_idx < kNumTopk) {
             // For backward, weights are optional
-            recv_topk_weights[i * kNumTopk + lane_idx] = tma_buffer.get_topk_weights_ptr()[lane_idx];
+            recv_topk_weights[i * kNumTopk + lane_idx] = kAfdTokenRoutes and dst_expert_idx < 0 ?
+                0.0f : tma_buffer.get_topk_weights_ptr()[lane_idx];
         }
         __syncwarp();
 
@@ -209,6 +214,20 @@ dispatch_copy_epilogue_impl(void* buffer, void* workspace,
         if (kDoExpand and lane_idx < kNumTopk)
             recv_src_metadata[i * kMetadataStride + 2 + lane_idx] = dst_tensor_idx;
         __syncwarp();
+    }
+
+    // afdEP token-major receive: rows allocated past the live count
+    if constexpr (kAfdTokenRoutes) {
+        EP_STATIC_ASSERT(not kDoExpand, "Token routes: non-expanded receive");
+        const int first = num_recv_tokens + (global_warp_idx + kNumWarps * kNumSMs -
+                                             num_recv_tokens % (kNumWarps * kNumSMs)) % (kNumWarps * kNumSMs);
+        for (int i = first; i < num_allocated_tokens; i += kNumWarps * kNumSMs) {
+            if (lane_idx < kNumTopk) {
+                recv_topk_idx[i * kNumTopk + lane_idx] = -1;
+                if (recv_topk_weights != nullptr)
+                    recv_topk_weights[i * kNumTopk + lane_idx] = 0.0f;
+            }
+        }
     }
 
     // Maintain linked list's ending

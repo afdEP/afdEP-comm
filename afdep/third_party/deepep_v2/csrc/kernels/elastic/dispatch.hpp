@@ -716,6 +716,7 @@ public:
         int num_max_tokens_per_rank;
         int num_experts, num_topk;
         int afd_region_offset;
+        bool afd_token_routes;
         // afdEP count-first only (AfdepFfnStreamEpilogueRuntime)
         int64_t afd_timeout_cycles;
         int afd_unit_min_rows;
@@ -751,7 +752,8 @@ static void __instantiate_kernel() {{
                            args.num_hidden_bytes, args.num_sf_packs,
                            args.num_max_tokens_per_rank,
                            args.num_experts, args.num_topk,
-                           args.afd_region_offset > 0 ? fmt::format(", {}", args.afd_region_offset) : std::string());
+                           args.afd_region_offset > 0 or args.afd_token_routes ?
+                               fmt::format(", {}, {}", args.afd_region_offset, args.afd_token_routes) : std::string());
     }
 
     static void launch_impl(const jit::KernelHandle& kernel, const jit::LaunchConfigHandle& config, Args args) {
@@ -782,7 +784,7 @@ public:
 using namespace deep_ep::elastic;
 
 static void __instantiate_kernel() {{
-    auto ptr = reinterpret_cast<void*>(&afdep_ffn_stream_epilogue_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>);
+    auto ptr = reinterpret_cast<void*>(&afdep_ffn_stream_epilogue_impl<{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}>);
 }}
 )",
                            args.do_expand, args.cached_mode, args.read_device_count,
@@ -791,7 +793,8 @@ static void __instantiate_kernel() {{
                            args.num_hidden_bytes, args.num_sf_packs,
                            args.num_max_tokens_per_rank,
                            args.num_experts, args.num_topk,
-                           args.afd_region_offset, args.afd_timeout_cycles, args.afd_unit_min_rows);
+                           args.afd_region_offset, args.afd_timeout_cycles, args.afd_unit_min_rows,
+                           args.afd_token_routes);
     }
 
     static void launch_impl(const jit::KernelHandle& kernel, const jit::LaunchConfigHandle& config, Args args) {
@@ -821,7 +824,8 @@ static void launch_dispatch_copy_epilogue(void* buffer, void* workspace,
                                           const bool& afd_count_first = false,
                                           const int64_t& afd_timeout_cycles = 0,
                                           const int& afd_unit_min_rows = 1,
-                                          const int& afd_epilogue_sms = 0) {
+                                          const int& afd_epilogue_sms = 0,
+                                          const bool& afd_token_routes = false) {
     // Maximize shared memory utilization
     // afdEP count-first keeps its unit claim after the TMA buffers, on afd_epilogue_sms CTAs if set.
     const auto token_layout = layout::TokenLayout(num_hidden_bytes, num_sf_packs * sizeof(sf_pack_t), num_topk, true);
@@ -839,6 +843,7 @@ static void launch_dispatch_copy_epilogue(void* buffer, void* workspace,
         .num_max_tokens_per_rank = num_max_tokens_per_rank,
         .num_experts = num_experts, .num_topk = num_topk,
         .afd_region_offset = afd_region_offset,
+        .afd_token_routes = afd_token_routes,
         .afd_timeout_cycles = afd_timeout_cycles,
         .afd_unit_min_rows = std::clamp(afd_unit_min_rows, 1, std::max(num_warps, 1)),
         .buffer = buffer, .workspace = workspace,

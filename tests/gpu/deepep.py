@@ -129,10 +129,7 @@ def token_rows(received, worker: int, config: Config):
             decoded.view(-1, config.hidden_size // 128, 128)
             * received.recv_scale[:, :, None]
         ).reshape_as(decoded)
-    # A weight beside ID -1 belongs to an expert held elsewhere.
-    factors = torch.where(
-        ids >= 0, weights * (ids + worker * config.experts_per_rank + 1), 0
-    )
+    factors = weights * (ids + worker * config.experts_per_rank + 1)
     rows = (decoded[:, None, :] * factors[:, :, None]).bfloat16().float()
     return rows.sum(dim=1).bfloat16()
 
@@ -397,14 +394,15 @@ def verify(
 
 
 def verify_token_receive(state, host_counts, config, counts, weight_sums, tokens):
-    """One live row per token that selected a local expert (later rows hold ID -1);
-    aligned inclusive per-expert prefix sums."""
+    """One live row per token that selected a local expert, then rows with ID -1;
+    weight 0 wherever the ID is -1; aligned inclusive per-expert prefix sums."""
     psum, ids, weights, count = state
     live = int(count.item())
     assert live == tokens, (live, tokens)
-    assert bool((ids[live:] == -1).all()), "a padding row holds an expert ID"
-    ids, weights = ids[:live], weights[:live]
-    assert bool((ids >= 0).any(dim=1).all()), "a live row selects no local expert"
+    assert bool((ids[live:] == -1).all()) and bool((weights[ids < 0] == 0).all())
+    assert bool((ids[:live] >= 0).any(dim=1).all()), (
+        "a live row selects no local expert"
+    )
     assert bool((ids < config.experts_per_rank).all())
     received_weights = torch.zeros_like(weight_sums)
     received_weights.index_add_(0, ids[ids >= 0], weights[ids >= 0])
