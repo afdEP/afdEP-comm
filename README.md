@@ -378,6 +378,10 @@ RDMA hop per token
 ([direct record](docs/validation-direct-per-domain.json)); nodes with different GPU counts are not
 supported.
 
+`receive_layout="token-major"` passed the suite over two NVLink domains of two H100 joined by GIN,
+hybrid and direct, with the FFN ranks in one domain and in both
+([record](docs/validation-token-domains.json)); three or more domains were not run with it.
+
 ## Acknowledgments
 
 afdEP-comm's communication kernels are DeepEP's. [DeepEP](https://github.com/deepseek-ai/DeepEP),

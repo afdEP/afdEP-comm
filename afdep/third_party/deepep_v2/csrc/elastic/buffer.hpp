@@ -845,11 +845,11 @@ public:
             not nccl_context->is_scaleup_nvlink and not deterministic and afdep_hybrid_routes_in_kernel() and
             afd_ffn_ranks_per_domain == 0;
         if (afd_role_aware) {
-            // afdEP exposes the expanded (expert-major) receive and, in one NVLink domain, the
-            // token-major one (do_expand=false); cached handles stay off.
+            // afdEP exposes the expanded (expert-major) receive and the token-major one
+            // (do_expand=false): the wire token carries every top-k ID and weight, so the
+            // receive layout is chosen by the destination's copy epilogue alone. Cached handles stay off.
             // Roles are immutable constructor geometry, never token-count guesses.
             EP_HOST_ASSERT(not cached_mode);
-            EP_HOST_ASSERT(do_expand or (nccl_context->num_scaleout_ranks == 1 and nccl_context->is_scaleup_nvlink));
             EP_HOST_ASSERT(afd_source or num_tokens == 0);
             // Per-domain FFN prefix: f FFN ranks in each of the physical NVLink domains, and the handle
             // copy that carries the logical IDs to combine.
@@ -1441,8 +1441,6 @@ public:
         const bool afd_direct_worker = afd_worker and afd_direct;
         if (afd_worker)
             EP_HOST_ASSERT(num_combined_tokens == 0);
-        // afdEP token-major replies: one NVLink domain only.
-        EP_HOST_ASSERT(use_expanded_layout or afd_ffn_ranks == 0 or afd_direct);
         const auto [num_scaleup_ranks] = get_shape<1>(psum_num_recv_tokens_per_scaleup_rank);
         EP_HOST_ASSERT(combined_topk_idx.is_cuda() and combined_topk_idx.is_contiguous());
         EP_HOST_ASSERT(combined_topk_idx.scalar_type() == c10::CppTypeToScalarType<topk_idx_t>::value);
