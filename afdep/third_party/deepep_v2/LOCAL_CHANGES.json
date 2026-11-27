@@ -8,7 +8,7 @@
     },
     "csrc/kernels/elastic/combine.hpp": {
       "upstream_sha256": "edb25ab70b64517786302a952c223f8389b3d7fce0f2d82a9706ddd83598b5e6",
-      "sha256": "f457125f1aacae83633ae5cc509df3a35c6b273c8da7456bb89eb47c70b61b97"
+      "sha256": "3a40c89cba2ef7951a7dadb3f2bf8b0274a3b28b57e271414f861ad15a68ce16"
     },
     "csrc/kernels/elastic/dispatch.hpp": {
       "upstream_sha256": "34180aebedf6f0a7062fd2bfe4f35668a58ae9486767f7d77554817a8f9999a2",

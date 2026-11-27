@@ -625,6 +625,12 @@ increased median batch latency by 1.17–2.86% at 1–32 requests per DP.
 The FFN-only implementation has native digest `da85b62b`.
 `AFDEP_SHARED_FFN_RECEIVE=1` restores the shared kernel.
 
+On the return path, Attention also launches one block for the per-CTA arrival wait.
+Each FFN still signals once per sending CTA. `AFDEP_FULL_ATTN_COLLECT_GRID=1`
+restores the full collect grid. On four H200s with FFN replies already delivered,
+mean collect duration differed by at most 0.024 µs across 0–2,048 tokens per source
+(trial `a279a86d`, combined native tree `c0475063`).
+
 Measured on 4 × H200, fresh-process screens, native digest `9675783b`:
 
 | Without load (5 repeats) | T=1 | 8 | 32 | 128 | 512 | 2,048 |
@@ -1584,8 +1590,8 @@ fresh-process screens):
 No mechanism was found. An in-process A/B is not possible with this DeepEP build
 (two Buffers in one process fault with an illegal address, also without the role suites, and two
 graphs captured on one Buffer corrupt each other), and single-process traces vary
-more between processes than the effect. So the one-NVLink-domain suites keep the shared
-launch shapes. What the FFN receive did hold, the copy epilogue, is section 15
+more between processes than the effect. That experiment kept the shared launch shapes. Section 15 describes the current
+one-block receivers. What the FFN receive did hold, the copy epilogue, is section 15
 ([record](validation-role-suites.json)).
 
 ### R11. Batched count-first flag release and slot-at-issue (slower)
