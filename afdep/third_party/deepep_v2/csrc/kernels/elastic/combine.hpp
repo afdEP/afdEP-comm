@@ -405,7 +405,7 @@ static void* launch_combine(void* x,
         return get_hybrid_reduce_buffer(buffer, token_layout, num_scaleout_ranks, num_scaleup_ranks,
                                         num_max_tokens_per_rank, num_topk, allow_multiple_reduction);
     }
-    const CombineRuntime::Args args = {
+    CombineRuntime::Args args = {
         .is_scaleup_nvlink = is_scaleup_nvlink,
         .use_expanded_layout = use_expanded_layout,
         .allow_multiple_reduction = allow_multiple_reduction,
@@ -478,6 +478,13 @@ static void* launch_combine(void* x,
     } else {
         const auto code = CombineRuntime::generate(args);
         const auto runtime = jit::compiler->build("combine", code);
+        // Only block 0 polls on Attention. The specialization still counts every FFN sender CTA.
+        static const bool full_collect_grid = deep_ep::get_env<int>("AFDEP_FULL_ATTN_COLLECT_GRID", 0) != 0;
+        if (args.afd_per_cta_exit and args.afd_skip_entry_barrier and scaleup_rank_idx >= args.afd_directed_ffn_ranks and
+            not full_collect_grid and afdep_role_suites()) {
+            args.launch_args.grid_dim.first = 1;
+            args.launch_args.cluster_dim = 1;
+        }
         CombineRuntime::launch(runtime, args, stream);
     }
 
