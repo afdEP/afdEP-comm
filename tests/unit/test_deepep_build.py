@@ -84,7 +84,7 @@ SHARED_KERNEL_SHA256 = {
         "a6fd0f17475bf1b1783a9671cbe09218e982ae904ad86ff2e6aa12efe2c9ee8a"
     ),
     "dispatch_copy_epilogue.cuh": (
-        "c0d647f36c632bf92f67489018d5efa7faafc077e9cea4ba4c68951153ff8669"
+        "0b573abeb0dc2bb8d4c65d9a3ce28f82537e129d3dc4cf5e3709dd4e9cbf85cf"
     ),
     "afdep_roles.cuh": (
         "4f7ed0d81d7215753c99dfe1364e4ba6e707101cb5ede0d1b139e8b1923e937a"

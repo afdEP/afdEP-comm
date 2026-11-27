@@ -1162,9 +1162,8 @@ public:
         // afdEP role suites (afdep_suites.hpp): in one NVLink domain the FFN receive triggers its
         // copy epilogue after the arrival wait (or, count-first, streams it behind the payload);
         // in directional hybrid each role launches only the warp classes it uses.
-        const bool afd_cf_ffn_stream = afd_count_first and not afd_cf_source_only;
         auto afd_dispatch_shape = AfdLaunchShape::kShared;
-        if (afd_count_first and (afd_source or afd_cf_ffn_stream))
+        if (afd_count_first and (afd_source or not afd_cf_source_only))
             afd_dispatch_shape = AfdLaunchShape::kCountFirst;
         else if (afd_direct_nvlink and not afd_source and afdep_skip_entry_barriers() and afdep_directional_notify() and
                  afdep_directed_exit() and afdep_ffn_receive_kernels())
@@ -1370,11 +1369,8 @@ public:
                                       num_channels,
                                       do_expand, cached_mode, afd_role_aware and not do_cpu_sync,
                                       comm_stream, afd_role_buffers ? afd_ffn_ranks : 0,
-                                      // Token-major receive: the epilogue writes ID -1 and weight 0
-                                      // where a row carries no route (last argument).
-                                      afd_cf_ffn_stream, num_gpu_timeout_cycles,
-                                      afdep_count_first_unit_min_rows(), afdep_count_first_epilogue_sms(),
-                                      afd_role_aware and not do_expand);
+                                      afd_count_first and not afd_cf_source_only, num_gpu_timeout_cycles,
+                                      afdep_count_first_unit_min_rows(), afdep_count_first_epilogue_sms());
         }
 
         // Stream control

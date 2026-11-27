@@ -232,8 +232,9 @@ class ReceiveResult:
     Expert-major layout (``expanded``): one row per (token, local expert), grouped by
     expert; ``recv_topk_weights`` is ``[rows]`` and ``recv_topk_idx`` is None.
     Token-major layout: one row per received token; ``recv_topk_idx`` holds its local
-    expert IDs (``-1``: held elsewhere, and every slot of a padding row) and
-    ``recv_topk_weights`` its ``[rows, top_k]`` weights, 0 where the ID is -1.
+    expert IDs (``-1``: held elsewhere) and ``recv_topk_weights`` its ``[rows, top_k]``
+    weights, to be ignored where the ID is -1. Rows from ``recv_token_count`` on are
+    padding, IDs and weights included.
     """
 
     recv_x: torch.Tensor
