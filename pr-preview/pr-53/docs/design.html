@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">afdEP-comm: DeepEP V2 specialized for AFD roles | afdEP-comm</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://afdep.github.io/afdEP-comm/pr-preview/pr-53/docs/design"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="afdEP-comm: DeepEP V2 specialized for AFD roles | afdEP-comm"><meta data-rh="true" name="description" content="Baseline: FastAFD&#x27;s DeepEP M2N, the way FastAFD"><meta data-rh="true" property="og:description" content="Baseline: FastAFD&#x27;s DeepEP M2N, the way FastAFD"><link data-rh="true" rel="canonical" href="https://afdep.github.io/afdEP-comm/pr-preview/pr-53/docs/design"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/pr-preview/pr-53/docs/design" hreflang="en"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/pr-preview/pr-53/docs/design" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"afdEP-comm: DeepEP V2 specialized for AFD roles","item":"https://afdep.github.io/afdEP-comm/pr-preview/pr-53/docs/design"}]}</script><link rel="stylesheet" href="/afdEP-comm/pr-preview/pr-53/assets/css/styles.a2e8e196.css">
-<script src="/afdEP-comm/pr-preview/pr-53/assets/js/runtime~main.c69a354a.js" defer="defer"></script>
+<script src="/afdEP-comm/pr-preview/pr-53/assets/js/runtime~main.77f62bd6.js" defer="defer"></script>
 <script src="/afdEP-comm/pr-preview/pr-53/assets/js/main.51da451d.js" defer="defer"></script>
 </head>
 <body>
@@ -1046,6 +1046,11 @@ The one-block serving trial (<code>901cbf3d</code>, Qwen3-30B-A3B, six H200s, DB
 increased median batch latency by 1.17–2.86% at 1–32 requests per DP.
 The FFN-only implementation has native digest <code>da85b62b</code>.
 <code>AFDEP_SHARED_FFN_RECEIVE=1</code> restores the shared kernel.</p>
+<p>On the return path, Attention also launches one block for the per-CTA arrival wait.
+Each FFN still signals once per sending CTA. <code>AFDEP_FULL_ATTN_COLLECT_GRID=1</code>
+restores the full collect grid. On four H200s with FFN replies already delivered,
+mean collect duration differed by at most 0.024 µs across 0–2,048 tokens per source
+(trial <code>a279a86d</code>, combined native tree <code>c0475063</code>).</p>
 <p>Measured on 4 × H200, fresh-process screens, native digest <code>9675783b</code>:</p>
 
 
@@ -2810,8 +2815,8 @@ repeats at 3–4%) and 2,048 (+0.1%).</li>
 <p>No mechanism was found. An in-process A/B is not possible with this DeepEP build
 (two Buffers in one process fault with an illegal address, also without the role suites, and two
 graphs captured on one Buffer corrupt each other), and single-process traces vary
-more between processes than the effect. So the one-NVLink-domain suites keep the shared
-launch shapes. What the FFN receive did hold, the copy epilogue, is section 15
+more between processes than the effect. That experiment kept the shared launch shapes. Section 15 describes the current
+one-block receivers. What the FFN receive did hold, the copy epilogue, is section 15
 (<a href="/afdEP-comm/pr-preview/pr-53/assets/files/validation-role-suites-78670245113182ccc384459de9c3a68b.json" target="_blank" class="">record</a>).</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="r11-batched-count-first-flag-release-and-slot-at-issue-slower">R11. Batched count-first flag release and slot-at-issue (slower)<a href="#r11-batched-count-first-flag-release-and-slot-at-issue-slower" class="hash-link" aria-label="Direct link to R11. Batched count-first flag release and slot-at-issue (slower)" title="Direct link to R11. Batched count-first flag release and slot-at-issue (slower)" translate="no">​</a></h3>
 <p>Two fixes for section 16&#x27;s measured costs. Batched release: payload lanes post completed
