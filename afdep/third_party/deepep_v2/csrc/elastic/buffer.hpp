@@ -1317,7 +1317,8 @@ public:
             recv_sf_ptr = recv_sf->data_ptr();
         }
         if (not do_expand) {
-            recv_topk_idx = torch::empty({num_allocated_tokens, num_topk}, topk_idx.options());
+            // afdEP: rows the copy epilogue does not write (past the received count) read ID -1.
+            recv_topk_idx = torch::full({num_allocated_tokens, num_topk}, -1, topk_idx.options());
             recv_topk_idx_ptr = recv_topk_idx->data_ptr<topk_idx_t>();
         }
         if (topk_weights.has_value()) {

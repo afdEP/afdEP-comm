@@ -397,11 +397,12 @@ def verify(
 
 
 def verify_token_receive(state, host_counts, config, counts, weight_sums, tokens):
-    """One live row per token that selected a local expert (later rows are padding);
+    """One live row per token that selected a local expert (later rows hold ID -1);
     aligned inclusive per-expert prefix sums."""
     psum, ids, weights, count = state
     live = int(count.item())
     assert live == tokens, (live, tokens)
+    assert bool((ids[live:] == -1).all()), "a padding row holds an expert ID"
     ids, weights = ids[:live], weights[:live]
     assert bool((ids >= 0).any(dim=1).all()), "a live row selects no local expert"
     assert bool((ids < config.experts_per_rank).all())
