@@ -52,6 +52,7 @@ MODES = ("host", "device", "static")
 # Qwen3.5 MoE attention (config.json of the captured checkpoint).
 HEAD_DIM, KV_HEADS, ROTARY_DIM, ROPE_THETA, NORM_EPS = 256, 2, 64, 1e7, 1e-6
 MAX_PROMPT = 1024  # benchmarks/capture.py keeps prompts up to this length
+PIECE_ROWS = 1 << 16  # rows of one expert pass piece (1 GiB of float32 at 4096)
 
 
 class Replay:
@@ -219,20 +220,28 @@ class Experts:
     def __init__(self, config: Config, gate_up, down):
         self.align = config.expert_alignment
         self.gate_up, self.down = gate_up.cuda(), down.cuda()
+        self.piece = PIECE_ROWS
 
     def __call__(self, received):
         assert received.recv_scale is None, "BF16 payload only"
+        x, weights = received.recv_x, received.recv_topk_weights
         ends = received.recv_count_psum
         offs = (((ends + self.align - 1) // self.align) * self.align).int()
-        gate, up = torch._grouped_mm(received.recv_x, self.gate_up, offs=offs).chunk(
-            2, -1
-        )
-        out = torch._grouped_mm(F.silu(gate) * up, self.down, offs=offs)
         starts = torch.cat((offs.new_zeros(1), offs[:-1]))
-        rows = torch.arange(out.shape[0], device="cuda")[:, None]
-        real = ((rows >= starts) & (rows < ends)).any(dim=1)
-        weighted = out.float() * received.recv_topk_weights[:, None]
-        return torch.where(real[:, None], weighted, 0).bfloat16()
+        out = torch.empty(
+            (x.shape[0], self.down.shape[-1]), dtype=torch.bfloat16, device="cuda"
+        )
+        # Static row pieces (a group may span two): the float32 and intermediate
+        # temporaries stay at ``piece`` rows for any pass length.
+        for a in range(0, x.shape[0], self.piece):
+            b = min(a + self.piece, x.shape[0])
+            piece = offs.clamp(a, b) - a
+            gate, up = torch._grouped_mm(x[a:b], self.gate_up, offs=piece).chunk(2, -1)
+            y = torch._grouped_mm(F.silu(gate) * up, self.down, offs=piece)
+            rows = torch.arange(a, b, device="cuda")[:, None]
+            real = ((rows >= starts) & (rows < ends)).any(dim=1)
+            out[a:b] = torch.where(real[:, None], y.float() * weights[a:b, None], 0)
+        return out
 
 
 def experts_check() -> dict:
@@ -250,6 +259,7 @@ def experts_check() -> dict:
         torch.randn(4, 256, 128, dtype=torch.bfloat16) / 16,
         torch.randn(4, 64, 256, dtype=torch.bfloat16) / 8,
     )
+    experts.piece = config.expert_alignment  # split groups, and pieces past the end
     counts = [3, 0, 130, 1]
     starts, ends, end = [], [], 0
     for c in counts:
