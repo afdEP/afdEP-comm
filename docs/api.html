@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.10.2">
 <title data-rh="true">API contract | afdEP-comm</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://afdep.github.io/afdEP-comm/docs/api"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="API contract | afdEP-comm"><meta data-rh="true" name="description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><meta data-rh="true" property="og:description" content="Buffer(group=..., config=Config(...)) owns one NCCL communicator and one"><link data-rh="true" rel="canonical" href="https://afdep.github.io/afdEP-comm/docs/api"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="en"><link data-rh="true" rel="alternate" href="https://afdep.github.io/afdEP-comm/docs/api" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"API contract","item":"https://afdep.github.io/afdEP-comm/docs/api"}]}</script><link rel="stylesheet" href="/afdEP-comm/assets/css/styles.a2e8e196.css">
-<script src="/afdEP-comm/assets/js/runtime~main.65595559.js" defer="defer"></script>
+<script src="/afdEP-comm/assets/js/runtime~main.ae8bf5e8.js" defer="defer"></script>
 <script src="/afdEP-comm/assets/js/main.44667b42.js" defer="defer"></script>
 </head>
 <body>
@@ -122,6 +122,46 @@ collect 0a, dispatch 0b, collect 1a, dispatch 1b, and FFN runs receive 0a,
 receive 1a, reply 0a, receive 0b, reply 1a, receive 1b. Mapping micro-batches to
 lanes and choosing this order belong to the caller. The GPU suite runs this order
 eagerly on per-lane streams and as one captured graph (<code>--lanes 2</code>).</p>
+<h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="wire-token">Wire token<a href="#wire-token" class="hash-link" aria-label="Direct link to Wire token" title="Direct link to Wire token" translate="no">​</a></h2>
+<p>Every dispatched token travels in one fixed record, identical for both receive layouts,
+for hybrid and direct transport, and for any number of NVLink domains:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Size</th></tr></thead><tbody><tr><td>activations</td><td><code>H</code> bytes (FP8) or <code>2H</code> bytes (BF16)</td></tr><tr><td>FP8 scales</td><td>4 bytes per scale pack of the caller&#x27;s scale tensor, absent for BF16</td></tr><tr><td>top-k expert IDs, DeepEP&#x27;s logical numbering</td><td><code>K</code> x int32</td></tr><tr><td>top-k weights</td><td><code>K</code> x float32</td></tr><tr><td>source token index and <code>K</code> reply links</td><td><code>(1 + K)</code> x int32</td></tr></tbody></table>
+<p>Each field is padded to DeepEP&#x27;s TMA alignment (<code>layout::TokenLayout</code>). A token is sent once
+per destination FFN rank, with all <code>K</code> IDs and weights. The receiving rank&#x27;s copy kernel alone
+builds the rows: <code>Config(do_expand=True)</code>, DeepEP&#x27;s dispatch argument and the default, writes
+one row per local expert hit (expert-major); <code>do_expand=False</code> writes one row per token with
+the IDs of other ranks set to <code>-1</code> (token-major). The token-major
+layout therefore runs across NVLink domains as well; its replies stay BF16, and construction
+rejects <code>AFDEP_HYBRID_FP8_COMBINE</code> with it across domains.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="transport-and-tuning">Transport and tuning<a href="#transport-and-tuning" class="hash-link" aria-label="Direct link to Transport and tuning" title="Direct link to Transport and tuning" translate="no">​</a></h2>
 <p>afdEP-comm keeps DeepEP&#x27;s uniform logical expert numbering (Attention ranks own empty
 expert blocks, never legal routing targets) and its collective participation.
@@ -166,6 +206,6 @@ default 0 means every bucket, negative values clamp to 0, and it reports 0 when 
 <p>Native compilation is lazy and process-locked. <code>AFDEP_CACHE_DIR</code> controls the
 extension cache; <code>EP_JIT_CACHE_DIR</code> controls DeepEP kernel JIT cache. Both must be
 writable. Use matching NCCL headers/runtime before starting Python; already
-loaded libraries cannot be replaced by changing environment variables later.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/design"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">afdEP-comm: DeepEP V2 specialized for AFD roles</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#roles-and-tensors" class="table-of-contents__link toc-highlight">Roles and tensors</a></li><li><a href="#graphs-streams-and-lifetime" class="table-of-contents__link toc-highlight">Graphs, streams and lifetime</a></li><li><a href="#several-buffers-on-one-group" class="table-of-contents__link toc-highlight">Several Buffers on one group</a></li><li><a href="#transport-and-tuning" class="table-of-contents__link toc-highlight">Transport and tuning</a></li></ul></div></div></div></div></main></div></div></div></div>
+loaded libraries cannot be replaced by changing environment variables later.</p></div></article><nav class="docusaurus-mt-lg pagination-nav" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--next" href="/afdEP-comm/docs/design"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">afdEP-comm: DeepEP V2 specialized for AFD roles</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#roles-and-tensors" class="table-of-contents__link toc-highlight">Roles and tensors</a></li><li><a href="#graphs-streams-and-lifetime" class="table-of-contents__link toc-highlight">Graphs, streams and lifetime</a></li><li><a href="#several-buffers-on-one-group" class="table-of-contents__link toc-highlight">Several Buffers on one group</a></li><li><a href="#wire-token" class="table-of-contents__link toc-highlight">Wire token</a></li><li><a href="#transport-and-tuning" class="table-of-contents__link toc-highlight">Transport and tuning</a></li></ul></div></div></div></div></main></div></div></div></div>
 </body>
 </html>
