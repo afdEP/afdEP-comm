@@ -139,7 +139,10 @@ class FfnService:
         k = len(rows)
         if not rows or len(graphs) != (k * k if layers > 0 else k):
             raise ValueError("FfnService needs one graph per client or client range")
-        if any((g is None) != (i % k + i // k >= k) for i, g in enumerate(graphs)):
+        # Without layers a caller that only uses scan() may pass None graphs.
+        if layers > 0 and any(
+            (g is None) != (i % k + i // k >= k) for i, g in enumerate(graphs)
+        ):
             raise ValueError("FfnService needs a graph for every range of clients")
         if k > ORDER_WORDS:
             raise ValueError(f"FfnService serves at most {ORDER_WORDS} clients")
