@@ -37,6 +37,9 @@ COLLECT_VIEW = False  # --collect-view: Attention reads the single-FFN collect v
 # role's launch shape; protocol and buffer-geometry controls must match on all ranks.
 ROLE_LOCAL_ENV_PREFIX, ROLE_LOCAL_ENV = "AFDEP_SHARED_", ("AFDEP_ATTENTION_GRID_SYNC",)
 RECORDED_ENV_PREFIXES = ("AFDEP_", "EP_", "NCCL_")
+# --receive-layout names for Config.do_expand True and False.
+EXPERT_MAJOR = "expert-major"
+RECEIVE_LAYOUTS = (EXPERT_MAJOR, "token-major")
 # FP8 combine replies (AFDEP_HYBRID_FP8_COMBINE=1, afdep_fp8_combine.cuh): E4M3 per FFN
 # domain, one power-of-two scale 2^e per 128 elements, e the smallest integer with
 # amax <= 448 * 2^e (from amax's FP32 bits), clamped at -117.
@@ -117,6 +120,31 @@ def expert_rows(received, worker: int, config: Config):
         ).reshape_as(decoded)
     weighted = decoded * received.recv_topk_weights[:, None] * factor[:, None]
     return torch.where(belongs.any(dim=1)[:, None], weighted, 0).bfloat16()
+
+
+def token_rows(received, worker: int, config: Config):
+    """Token-major layout: per token, the test experts' rows ((e+1)*identity times the
+    weight, rounded to BF16) summed in FP32, as combine reduces expert rows."""
+    ids, weights = received.recv_topk_idx, received.recv_topk_weights
+    decoded = received.recv_x.float()
+    if received.recv_scale is not None:
+        decoded = (
+            decoded.view(-1, config.hidden_size // 128, 128)
+            * received.recv_scale[:, :, None]
+        ).reshape_as(decoded)
+    # A weight beside ID -1 belongs to an expert held elsewhere.
+    factors = torch.where(
+        ids >= 0, weights * (ids + worker * config.experts_per_rank + 1), 0
+    )
+    rows = (decoded[:, None, :] * factors[:, :, None]).bfloat16().float()
+    return rows.sum(dim=1).bfloat16()
+
+
+class TokenReceive(tuple):
+    """Prefix sums, IDs, weights and token count of an FFN token-major receive."""
+
+    def clone(self):
+        return TokenReceive(tensor.clone() for tensor in self)
 
 
 class Exchange:
@@ -210,10 +238,21 @@ class Exchange:
         """Collect (Attention) or run the test experts and reply (FFN)."""
         if self.buffer.role == "attention":
             return self.buffer.source_collect(view=COLLECT_VIEW).clone(), None
-        rows = expert_rows(received, self.buffer.role_rank, self.config)
+        if self.config.do_expand:
+            rows = expert_rows(received, self.buffer.role_rank, self.config)
+            snapshot = received.recv_count_psum.clone()
+        else:
+            rows = token_rows(received, self.buffer.role_rank, self.config)
+            snapshot = TokenReceive(
+                (
+                    received.recv_count_psum,
+                    received.recv_topk_idx,
+                    received.recv_topk_weights,
+                    received.recv_token_count,
+                )
+            ).clone()
         if delay and self.buffer.role_rank == 0:
             torch.cuda._sleep(DELAY_CYCLES)
-        snapshot = received.recv_count_psum.clone()
         self.buffer.worker_reply(rows, received.receipt)
         return snapshot, received.recv_counts_host if host_counts else None
 
@@ -336,10 +375,18 @@ def verify(
         return
     first = buffer.role_rank * config.experts_per_rank
     counts = torch.zeros(config.experts_per_rank, dtype=torch.int64, device="cuda")
+    weight_sums = torch.zeros(config.experts_per_rank, device="cuda")
+    tokens = 0
     for source in range(config.attention_ranks):
-        _, ids, _ = inputs(case, source, case.counts[source], config)
-        selected = ids[(ids >= first) & (ids < first + config.experts_per_rank)] - first
+        _, ids, weights = inputs(case, source, case.counts[source], config)
+        local = (ids >= first) & (ids < first + config.experts_per_rank)
+        selected = ids[local] - first
         counts += torch.bincount(selected, minlength=config.experts_per_rank)
+        weight_sums.index_add_(0, selected, weights[local])
+        tokens += int(local.any(dim=1).sum())
+    if not config.do_expand:
+        verify_token_receive(value, host_counts, config, counts, weight_sums, tokens)
+        return
     previous = torch.cat((value.new_zeros(1), value[:-1]))
     starts = (
         (previous + config.expert_alignment - 1) // config.expert_alignment
@@ -349,6 +396,29 @@ def verify(
         padded = (
             (counts + config.expert_alignment - 1) // config.expert_alignment
         ) * config.expert_alignment
+        assert host_counts == padded.cpu().tolist()
+
+
+def verify_token_receive(state, host_counts, config, counts, weight_sums, tokens):
+    """One live row per token that selected a local expert (later rows hold ID -1);
+    aligned inclusive per-expert prefix sums."""
+    psum, ids, weights, count = state
+    live = int(count.item())
+    assert live == tokens, (live, tokens)
+    assert bool((ids[live:] == -1).all()), "a padding row holds an expert ID"
+    ids, weights = ids[:live], weights[:live]
+    assert bool((ids >= 0).any(dim=1).all()), "a live row selects no local expert"
+    assert bool((ids < config.experts_per_rank).all())
+    received_weights = torch.zeros_like(weight_sums)
+    received_weights.index_add_(0, ids[ids >= 0], weights[ids >= 0])
+    torch.testing.assert_close(received_weights, weight_sums, rtol=0, atol=0)
+    received = torch.bincount(ids[ids >= 0], minlength=config.experts_per_rank)
+    torch.testing.assert_close(received, counts, rtol=0, atol=0)
+    padded = (
+        (counts + config.expert_alignment - 1) // config.expert_alignment
+    ) * config.expert_alignment
+    torch.testing.assert_close(psum.long(), padded.cumsum(dim=0), rtol=0, atol=0)
+    if host_counts is not None:
         assert host_counts == padded.cpu().tolist()
 
 
@@ -634,6 +704,12 @@ def main() -> None:
         help="Attention collects through source_collect(view=True)",
     )
     parser.add_argument(
+        "--receive-layout",
+        choices=RECEIVE_LAYOUTS,
+        default=EXPERT_MAJOR,
+        help="FFN receive rows: expert-major or token-major",
+    )
+    parser.add_argument(
         "--role-env",
         action="append",
         default=[],
@@ -650,6 +726,8 @@ def main() -> None:
         parser.error("lanes>1 requires afdEP-comm without --collect-view")
     if args.invalid_route and (args.baseline or args.capacity < 8):
         parser.error("invalid-route requires afdEP-comm (no baseline) and capacity>=8")
+    if args.baseline and args.receive_layout != EXPERT_MAJOR:
+        parser.error("the baseline receives expert-major rows only")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     dist.init_process_group("gloo", timeout=timedelta(seconds=300))
     world = dist.get_world_size()
@@ -683,6 +761,8 @@ def main() -> None:
         cpu_timeout_s=10 if args.invalid_route else 120,
         gpu_timeout_s=10 if args.invalid_route else 120,
     )
+    if not args.baseline:
+        settings["do_expand"] = args.receive_layout == EXPERT_MAJOR
     # Lane 0 runs the whole single-Buffer suite beside the other live Buffers.
     if args.baseline:
         buffers = [make(dist.group.WORLD, args.baseline, **settings)]

@@ -358,11 +358,11 @@ FFN_STREAM_EPILOGUE_EDITS = (
         "prefix sums, epochs and\n"
         "    // per-expert cursors, and each row's flag orders its data "
         "(PDL is used, please do not use `__ldg`)\n"
-        "    EP_STATIC_ASSERT(kDoExpand and not kCachedMode and kNumScaleoutRanks == 1 "
+        "    EP_STATIC_ASSERT(not kCachedMode and kNumScaleoutRanks == 1 "
         "and kAfdRegionOffset > 0 and\n"
         "                     kAfdTimeoutCycles > 0 and kNumScaleupRanks - "
         "kAfdRegionOffset <= kAfdCfMaxSources,\n"
-        '                     "Count-first copy epilogue: one-domain expanded role '
+        '                     "Count-first copy epilogue: one-domain role '
         'path");\n'
         "    const auto afd_ws = layout::WorkspaceLayout(workspace, kNumScaleoutRanks, "
         "kNumScaleupRanks, kNumExperts);\n"

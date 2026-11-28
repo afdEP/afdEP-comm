@@ -61,9 +61,9 @@ afdep_ffn_stream_epilogue_impl(void* buffer, void* workspace,
 
     // afdEP count-first: no grid dependency sync at entry; P orders the prefix sums, epochs and
     // per-expert cursors, and each row's flag orders its data (PDL is used, please do not use `__ldg`)
-    EP_STATIC_ASSERT(kDoExpand and not kCachedMode and kNumScaleoutRanks == 1 and kAfdRegionOffset > 0 and
+    EP_STATIC_ASSERT(not kCachedMode and kNumScaleoutRanks == 1 and kAfdRegionOffset > 0 and
                      kAfdTimeoutCycles > 0 and kNumScaleupRanks - kAfdRegionOffset <= kAfdCfMaxSources,
-                     "Count-first copy epilogue: one-domain expanded role path");
+                     "Count-first copy epilogue: one-domain role path");
     const auto afd_ws = layout::WorkspaceLayout(workspace, kNumScaleoutRanks, kNumScaleupRanks, kNumExperts);
     afdep_cf_wait_prefix<kAfdTimeoutCycles>(afd_ws, thread_idx, rank_idx);
 

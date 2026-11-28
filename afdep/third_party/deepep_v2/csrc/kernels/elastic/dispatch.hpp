@@ -855,7 +855,7 @@ static void launch_dispatch_copy_epilogue(void* buffer, void* workspace,
     if (afd_count_first) {
         // afdEP count-first (afdep_suites.hpp): CTAs claim units of rows that wait on P and on
         // their flags; the last claimant alone waits for the dispatch kernel.
-        EP_HOST_ASSERT(do_expand and not cached_mode and num_scaleout_ranks == 1 and afd_region_offset > 0 and
+        EP_HOST_ASSERT(not cached_mode and num_scaleout_ranks == 1 and afd_region_offset > 0 and
                        num_scaleup_ranks - afd_region_offset <= kAfdepCountFirstMaxSources and
                        afd_timeout_cycles > 0 and num_warps > 0);
         const auto role_code = AfdepFfnStreamEpilogueRuntime::generate(args);

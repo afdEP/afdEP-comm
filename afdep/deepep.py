@@ -67,6 +67,8 @@ class Config:
 
     FFN ranks are ranks [0, ffn_ranks), or with ``ffn_ranks_per_domain`` f the first
     f ranks of each of the ffn_ranks / f NVLink domains (see ``per_domain_layout``).
+    ``do_expand`` is DeepEP's dispatch argument and selects the FFN receive rows:
+    True for expert-major, False for token-major (replies stay BF16).
     """
 
     capacity_tokens_per_rank: int
@@ -84,6 +86,7 @@ class Config:
     cpu_timeout_s: int = 120
     gpu_timeout_s: int = 120
     ffn_ranks_per_domain: int = 0
+    do_expand: bool = True
 
     def __post_init__(self) -> None:
         for name in (
@@ -120,6 +123,8 @@ class Config:
             raise ValueError("top_k must be <=32 and <=num_experts")
         if self.payload not in {"bf16", "fp8"}:
             raise ValueError("payload must be 'bf16' or 'fp8'")
+        if not isinstance(self.do_expand, bool):
+            raise ValueError("do_expand must be a bool")
         if (
             self.world_size > MAX_RANKS
             or self.logical_experts > MAX_LOGICAL_EXPERTS
@@ -178,6 +183,9 @@ class Config:
 
     def receive_rows(self, bucket: int) -> int:
         """FFN receive rows for one bucket: only Attention ranks send."""
+        if not self.do_expand:
+            # One row per (token, FFN rank): each source sends a token at most once.
+            return self.attention_ranks * bucket
         return self._receive_rows(self.attention_ranks, bucket)
 
     def _receive_rows(self, sources: int, bucket: int) -> int:
@@ -204,11 +212,21 @@ class DispatchHandle:
     channel_linked_list: torch.Tensor | None = field(repr=False)
     recv_shape: tuple[int, int]
     _owner: object = field(repr=False)
+    # The receive layout of this exchange; combine replies in the same one.
+    expanded: bool = True
 
 
 @dataclass(frozen=True)
 class ReceiveResult:
-    """Expert-major valid rows and device prefix sums; padding is unspecified."""
+    """FFN receive rows, routing and device prefix sums; padding is unspecified.
+
+    Expert-major layout (``expanded``): one row per (token, local expert), grouped by
+    expert; ``recv_topk_weights`` is ``[rows]`` and ``recv_topk_idx`` is None.
+    Token-major layout: one row per received token; ``recv_topk_idx`` holds its local
+    expert IDs (``-1``: held elsewhere) and ``recv_topk_weights`` its ``[rows, top_k]``
+    weights, to be ignored where the ID is -1. Rows from ``recv_token_count`` on are
+    padding: their IDs are -1, their weights and ``recv_x`` unspecified.
+    """
 
     recv_x: torch.Tensor
     recv_scale: torch.Tensor | None
@@ -216,10 +234,26 @@ class ReceiveResult:
     recv_count_psum: torch.Tensor
     recv_counts_host: list[int]
     handle: DispatchHandle
+    recv_topk_idx: torch.Tensor | None = None
 
     @property
     def receipt(self) -> DispatchHandle:
         return self.handle
+
+    @property
+    def expanded(self) -> bool:
+        return self.handle.expanded
+
+    @property
+    def recv_token_count(self) -> torch.Tensor:
+        """Device ``[1]`` int32 count of received tokens (read-only receipt view).
+
+        In token-major layout rows ``[0, count)`` are live; in expert-major layout
+        it counts the tokens before expansion.
+        """
+        psum = self.handle.psum_num_recv_tokens_per_scaleup_rank
+        last = psum.shape[0]
+        return psum[last - 1 : last]
 
 
 class ElasticBuffer:
@@ -542,8 +576,14 @@ class ElasticBuffer:
         bucket: int,
         expert_alignment: int,
         do_cpu_sync: bool,
+        expand: bool = True,
     ) -> ReceiveResult:
-        """Original expanded dispatch contract; retain handle through combine."""
+        """Dispatch; retain the handle through combine.
+
+        ``expand=True`` is DeepEP's expanded (expert-major) receive. ``expand=False``
+        receives one row per token with its local expert IDs (AFD transport only).
+        Every rank passes the same value.
+        """
         self._check_live()
         if self._pending is not None:
             raise RuntimeError("Complete the previous exchange before dispatch")
@@ -553,6 +593,10 @@ class ElasticBuffer:
             raise ValueError("expert_alignment must be a positive integer")
         if type(do_cpu_sync) is not bool:
             raise ValueError("do_cpu_sync must be a boolean")
+        if type(expand) is not bool:
+            raise ValueError("expand must be a boolean")
+        if not expand and self.ffn_ranks is None:
+            raise ValueError("token-major receive requires the AFD transport")
         if do_cpu_sync and self._torch.cuda.is_current_stream_capturing():
             raise RuntimeError(
                 "Host receive counts are unavailable during CUDA capture"
@@ -582,17 +626,17 @@ class ElasticBuffer:
             self._num_qps(num_sms),
             None,
             None,
-            False,
-            False,
-            True,
+            False,  # async_with_compute_stream
+            False,  # allocate_on_comm_stream
+            True,  # do_handle_copy
             do_cpu_sync,
-            True,
-            True,
+            expand,  # do_expand
+            True,  # use_tma_aligned_col_major_sf
         )
         (
             recv_x,
             recv_scale,
-            _,
+            recv_ids,
             recv_weights,
             copied_ids,
             counts,
@@ -606,6 +650,8 @@ class ElasticBuffer:
         ) = result
         if x_scale is not None and recv_scale is None:
             raise RuntimeError("DeepEP dispatch did not return activation scales")
+        if not expand and recv_ids is None:
+            raise RuntimeError("DeepEP token-major dispatch did not return expert IDs")
         handle = DispatchHandle(
             self.num_experts,
             bucket,
@@ -617,17 +663,26 @@ class ElasticBuffer:
             channel_links,
             tuple(recv_x.shape),
             self._owner,
+            expand,
         )
         self._pending = handle
         return ReceiveResult(
-            recv_x, recv_scale, recv_weights, expert_psum, list(counts), handle
+            recv_x,
+            recv_scale,
+            recv_weights,
+            expert_psum,
+            list(counts),
+            handle,
+            None if expand else recv_ids,
         )
 
     def combine(
         self, expert_output: torch.Tensor, handle: DispatchHandle, *, view: bool = False
     ) -> torch.Tensor:
-        """Sum already-weighted expert rows into their original token order.
+        """Sum already-weighted rows into their original token order.
 
+        Rows are in the layout the handle's dispatch received: expert rows, or one
+        row per token already summed over its local experts.
         ``view=True`` may return a strided view of the registered transport buffer
         (one FFN rank in one NVLink domain); it is valid until the next dispatch.
         """
@@ -652,9 +707,9 @@ class ElasticBuffer:
             self._num_qps(handle.num_sms),
             None,
             None,
-            False,
-            False,
-            True,
+            False,  # async_with_compute_stream
+            False,  # allocate_on_comm_stream
+            handle.expanded,  # use_expanded_layout
             view,
         )
         self._pending = None
@@ -717,10 +772,14 @@ class Buffer:
         self.transport = self._open_transport(group)
         self.physical_domain = self.transport.physical_domain
         self.logical_domain = self.transport.logical_domain
+        self._check_receive_layout()
         self.num_buffer_bytes = self.transport.num_buffer_bytes
         self.topk_idx_dtype = self.transport.topk_idx_dtype
-        self.fp8_combine = self.transport.fp8_combine
-        self.fp8_combine_min_bucket = self.transport.fp8_combine_min_bucket
+        # FP8 replies quantize expert rows; token-major replies stay BF16.
+        self.fp8_combine = self.transport.fp8_combine and config.do_expand
+        self.fp8_combine_min_bucket = (
+            self.transport.fp8_combine_min_bucket if self.fp8_combine else 0
+        )
         self._torch, self.device = self.transport._torch, self.transport.device
         self._payload_dtype = (
             self._torch.float8_e4m3fn
@@ -747,6 +806,26 @@ class Buffer:
             ffn_ranks=config.ffn_ranks,
             ffn_ranks_per_domain=config.ffn_ranks_per_domain,
         )
+
+    def _check_receive_layout(self) -> None:
+        """Token-major receive runs on the AFD transport with BF16 replies.
+
+        Every rank sees the same transport and reply format, so every rank
+        closes (a collective) and raises together.
+        """
+        if self.config.do_expand:
+            return
+        error = None
+        if self.transport.ffn_ranks is None:
+            error = "do_expand=False requires the AFD transport"
+        elif self.physical_domain[0] > 1 and self.transport.fp8_combine:
+            error = (
+                "do_expand=False replies are BF16 across NVLink domains; "
+                "unset AFDEP_HYBRID_FP8_COMBINE"
+            )
+        if error is not None:
+            self.transport.close()
+            raise ValueError(error)
 
     def _source_output_rows(self) -> int:
         """Rows of the source's zero combine input: Attention ranks receive none."""
@@ -841,12 +920,14 @@ class Buffer:
             bucket=bucket,
             expert_alignment=c.expert_alignment,
             do_cpu_sync=read_host_counts,
+            expand=c.do_expand,
         )
 
     def worker_receive(
         self, *, bucket: int, read_host_counts: bool = False
     ) -> ReceiveResult:
-        """Participate with zero source tokens and receive expert-major rows."""
+        """Participate with zero source tokens and receive rows in the configured
+        layout: expert-major, or one row per token with its local expert IDs."""
         self._check_role("ffn")
         return self.transport.dispatch(
             self._empty_x,
@@ -856,6 +937,7 @@ class Buffer:
             bucket=bucket,
             expert_alignment=self.config.expert_alignment,
             do_cpu_sync=read_host_counts,
+            expand=self.config.do_expand,
         )
 
     def source_collect(self, *, view: bool = False) -> torch.Tensor:
@@ -876,7 +958,12 @@ class Buffer:
         )
 
     def worker_reply(self, rows: torch.Tensor, receipt: DispatchHandle) -> None:
-        """Reply with BF16 rows weighted exactly once by recv_topk_weights."""
+        """Reply with BF16 rows weighted exactly once by recv_topk_weights.
+
+        Expert-major layout: one row per expert row. Token-major layout: one row per
+        received token, the sum of its local experts' weighted outputs; padding rows are
+        ignored.
+        """
         self._check_role("ffn")
         self._tensor(rows, self._torch.bfloat16, receipt.recv_shape)
         self.transport.combine(rows, receipt)

@@ -86,11 +86,13 @@ def runtime(monkeypatch):
         scale = (
             Tensor((rows, 2), "fp32", contiguous=False) if args[1] is not None else None
         )
+        # args[23] is do_expand: the token-major receive also returns expert IDs.
+        expand, top_k = args[23], args[2].shape[1]
         return (
             Tensor((rows, 256), args[0].dtype),
             scale,
-            None,
-            Tensor((rows,), "fp32"),
+            None if expand else Tensor((rows, top_k), "i64"),
+            Tensor((rows,) if expand else (rows, top_k), "fp32"),
             args[2],
             [],
             Tensor((4,), "i32"),
@@ -496,6 +498,72 @@ def test_role_worker_dispatches_empty_and_preserves_receipt(runtime):
     rows = Tensor(received.recv_x.shape)
     buffer.worker_reply(rows, received.receipt)
     assert runtime.native.combine.call_args.args[0] is rows
+
+
+# Native positional flags: dispatch args[23] is do_expand, combine args[17] is
+# use_expanded_layout.
+DISPATCH_EXPAND, COMBINE_EXPANDED = 23, 17
+
+
+def test_token_major_layout_configuration_and_receive_bounds():
+    expert, token = config(), config(do_expand=False)
+    # One row per token from each of the two Attention sources.
+    assert token.receive_rows(8) == 2 * 8 < expert.receive_rows(8)
+    with pytest.raises(ValueError, match="do_expand"):
+        config(do_expand="token-major")
+
+
+@pytest.mark.parametrize("expanded", [True, False])
+def test_do_expand_selects_the_native_flags(runtime, expanded):
+    runtime.group.rank = lambda: 0
+    buffer = deepep.DeepEPBuffer(group=runtime.group, config=config(do_expand=expanded))
+    received = buffer.worker_receive(bucket=8)
+    assert runtime.native.dispatch.call_args.args[DISPATCH_EXPAND] is expanded
+    assert received.expanded is received.receipt.expanded is expanded
+    assert received.recv_topk_weights.shape == ((4,) if expanded else (4, 16))
+    assert (received.recv_topk_idx is None) is expanded
+    buffer.worker_reply(Tensor(received.recv_x.shape), received.receipt)
+    assert runtime.native.combine.call_args.args[COMBINE_EXPANDED] is expanded
+
+
+def test_token_major_layout_across_nvlink_domains_rejects_fp8_replies(
+    runtime, monkeypatch
+):
+    monkeypatch.delenv("EP_DISABLE_GIN", raising=False)
+    runtime.module.get_physical_domain_size.return_value = (2, 2)
+    token = config(do_expand=False)
+    assert deepep.DeepEPBuffer(group=runtime.group, config=token).fp8_combine is False
+    runtime.native.destroy.reset_mock()
+    runtime.module.destroy_nccl_comm.reset_mock()
+    runtime.native.get_afd_sparse_hybrid_config.return_value = (
+        0,
+        True,
+        True,
+        0,
+        True,
+        64,
+        0,
+    )
+    with pytest.raises(ValueError, match="replies are BF16 across NVLink domains"):
+        deepep.DeepEPBuffer(group=runtime.group, config=token)
+    runtime.native.destroy.assert_called_once()
+    runtime.module.destroy_nccl_comm.assert_called_once_with(17)
+
+
+def test_token_major_layout_requires_the_afd_transport(runtime):
+    x, ids, weights = Tensor((2, 256)), Tensor((2, 16), "i64"), Tensor((2, 16), "fp32")
+    with pytest.raises(ValueError, match="AFD transport"):
+        elastic(runtime).dispatch(
+            x,
+            None,
+            ids,
+            weights,
+            bucket=8,
+            expert_alignment=128,
+            do_cpu_sync=False,
+            expand=False,
+        )
+    runtime.native.dispatch.assert_not_called()
 
 
 def test_lanes_give_each_buffer_its_own_stream_and_restore_the_environment(

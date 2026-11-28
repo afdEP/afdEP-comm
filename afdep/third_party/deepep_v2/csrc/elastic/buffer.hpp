@@ -845,9 +845,11 @@ public:
             not nccl_context->is_scaleup_nvlink and not deterministic and afdep_hybrid_routes_in_kernel() and
             afd_ffn_ranks_per_domain == 0;
         if (afd_role_aware) {
-            // Only expanded inference dispatch is currently exposed by afdEP.
+            // afdEP exposes the expanded (expert-major) receive and the token-major one
+            // (do_expand=false): the token record carries every top-k ID and weight, so the
+            // receive layout is chosen by the destination's copy epilogue alone. Cached handles stay off.
             // Roles are immutable constructor geometry, never token-count guesses.
-            EP_HOST_ASSERT(not cached_mode and do_expand);
+            EP_HOST_ASSERT(not cached_mode);
             EP_HOST_ASSERT(afd_source or num_tokens == 0);
             // Per-domain FFN prefix: f FFN ranks in each of the physical NVLink domains, and the handle
             // copy that carries the logical IDs to combine.
@@ -1316,6 +1318,12 @@ public:
         }
         if (not do_expand) {
             recv_topk_idx = torch::empty({num_allocated_tokens, num_topk}, topk_idx.options());
+            // afdEP: rows the copy epilogue does not write (past the received count) read ID -1.
+            // The fill runs on the epilogue's stream, which orders it before the epilogue.
+            const auto caller_stream = at::cuda::getCurrentCUDAStream();
+            at::cuda::setCurrentCUDAStream(comm_stream);
+            recv_topk_idx->fill_(-1);
+            at::cuda::setCurrentCUDAStream(caller_stream);
             recv_topk_idx_ptr = recv_topk_idx->data_ptr<topk_idx_t>();
         }
         if (topk_weights.has_value()) {
