@@ -846,7 +846,7 @@ public:
             afd_ffn_ranks_per_domain == 0;
         if (afd_role_aware) {
             // afdEP exposes the expanded (expert-major) receive and the token-major one
-            // (do_expand=false): the wire token carries every top-k ID and weight, so the
+            // (do_expand=false): the token record carries every top-k ID and weight, so the
             // receive layout is chosen by the destination's copy epilogue alone. Cached handles stay off.
             // Roles are immutable constructor geometry, never token-count guesses.
             EP_HOST_ASSERT(not cached_mode);
